@@ -1,0 +1,14 @@
+{
+  "name": "github-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for GitHub integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mcp-server": "file:../../knowledge-bases/A2A",
+    "@octokit/rest": "^18.0.0"
+  }
+}

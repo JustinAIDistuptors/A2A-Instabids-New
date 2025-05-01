@@ -1,0 +1,7 @@
+services:
+  github-mcp:
+    build: ./mcp-servers/github
+    ports:
+      - "3001:3001"
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
