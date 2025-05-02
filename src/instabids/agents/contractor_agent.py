@@ -85,8 +85,11 @@ class ContractorAgent(LLMAgent):
             "score": bid_score
         })
         
+        # Fix: Access response as dictionary if it's a dict, otherwise use .content attribute
+        agent_response = response["content"] if isinstance(response, dict) else response.content
+        
         return {
-            "agent_response": response.content,
+            "agent_response": agent_response,
             "bid_id": bid_id,
             "bid_score": bid_score
         }
