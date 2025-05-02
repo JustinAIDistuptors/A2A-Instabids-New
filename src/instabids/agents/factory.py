@@ -1,27 +1,27 @@
 """Agent singleton factory & cache."""
-from google.adk import LLMAgent
-from instabids.tools import supabase_tools
-from instabids.agents.contractor import create_contractor_agent
+from typing import Optional
+from instabids_google.adk import LlmAgent, enable_tracing
 from memory.persistent_memory import PersistentMemory
-from .homeowner_agent import HomeownerAgent  # ← new import
+from .homeowner_agent import HomeownerAgent
 
+# Initialize tracing
 enable_tracing("stdout")
 
-_mem_store = PersistentMemory()
-_homeowner_instance: HomeownerAgent | None = None
+# Singleton instances
+_homeowner_singleton: Optional[HomeownerAgent] = None
+_contractor_singleton = None
 
-
-def get_homeowner_agent(memory: PersistentMemory | None = None) -> HomeownerAgent:  # noqa: D401
-    """Return singleton HomeownerAgent."""
-    global _homeowner_instance
-    if _homeowner_instance is None:
-        _homeowner_instance = HomeownerAgent(memory or _mem_store)
-    return _homeowner_instance
-
-
-def get_contractor_agent(memory: PersistentMemory = None) -> Agent:
-    """Returns a contractor agent with memory injection if provided."""
-    global _contractor
-    if _contractor is None or memory is not None:
-        _contractor = create_contractor_agent(memory)
-    return _contractor
+def get_homeowner_agent(memory: Optional[PersistentMemory] = None) -> HomeownerAgent:
+    """
+    Return singleton HomeownerAgent with optional memory injection.
+    
+    Args:
+        memory: Optional persistent memory instance to use
+        
+    Returns:
+        HomeownerAgent: The singleton instance
+    """
+    global _homeowner_singleton
+    if _homeowner_singleton is None:
+        _homeowner_singleton = HomeownerAgent(memory=memory or PersistentMemory())
+    return _homeowner_singleton
