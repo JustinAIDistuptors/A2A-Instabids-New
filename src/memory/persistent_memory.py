@@ -7,8 +7,8 @@ from typing import Dict, List, Any, Optional
 import json
 import datetime
 
-# Fix: Update import to use instabids_google.adk.memory instead of google.adk.memory
-from instabids_google.adk.memory import Memory
+# Use the helper module for Memory import with fallback mechanism
+from .memory_imports import Memory
 from supabase import Client
 
 logger = logging.getLogger(__name__)
