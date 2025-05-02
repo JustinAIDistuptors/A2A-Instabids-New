@@ -14,3 +14,17 @@ jobs:
       - run: ruff check . --exit-zero
       - run: mypy 
       - run: pytest -q
+  
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      supabase:
+        image: supabase/postgres:15
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+      - run: pnpm install
+      - run: pnpm exec cypress run
+        env:
+          SUPABASE_URL: http://localhost:5432
