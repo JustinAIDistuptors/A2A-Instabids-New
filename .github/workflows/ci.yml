@@ -10,7 +10,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -e ".[dev]"
+      
+      # Install dependencies explicitly
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+      
+      # Set PYTHONPATH to include the src directory
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/src" >> $GITHUB_ENV
+      
+      # Run linting and tests
       - run: ruff check . --exit-zero
       - run: mypy 
       - run: pytest -q
