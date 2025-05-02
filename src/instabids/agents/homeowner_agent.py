@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List
 
-from google.adk import LlmAgent, enable_tracing
-from google.adk.messages import UserMessage
+from google_adk import LlmAgent, enable_tracing
+from google_adk.messages import UserMessage
 from instabids.tools import supabase_tools, openai_vision_tool  # vision tool must exist
 from instabids.a2a_comm import send_envelope  # A2A helper
 from memory.persistent_memory import PersistentMemory
