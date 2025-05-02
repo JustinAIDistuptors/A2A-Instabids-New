@@ -10,6 +10,10 @@ pydantic
 # Supabase Client
 supabase
 
+# Database Connections
+asyncpg>=0.27.0
+pgvector>=0.2.0
+
 # Google Cloud Services (Vision, potentially others later)
 google-cloud-vision
 
