@@ -1,45 +1,112 @@
 """Supabase data‑access layer with retry + Tx management."""
 from __future__ import annotations
-from typing import List, Dict, Any
-import os, time
+from typing import List, Dict, Any, Optional, TypeVar, Callable
+import os
+import time
+import logging
 from supabase import create_client  # type: ignore
 from supabase.lib.client import Client  # type: ignore
 
-URL  = os.environ["SUPABASE_URL"]
-KEY  = os.environ["SUPABASE_ANON_KEY"]
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Environment variables
+URL = os.environ["SUPABASE_URL"]
+KEY = os.environ["SUPABASE_ANON_KEY"]
 _sb: Client = create_client(URL, KEY)
 _MAX_RETRY = 3
 
+T = TypeVar('T')  # Generic type for retry function
+
 class _Tx:
     """Context‑manager for pseudo‑transactions (Supabase RPC rollback pattern)."""
+    
     def __enter__(self):
+        """Begin transaction."""
         _sb.postgrest.rpc("begin")
         return self
+        
     def __exit__(self, exc, *_):
+        """Commit or rollback transaction based on exception."""
         _sb.postgrest.rpc("rollback" if exc else "commit")
         return False  # re‑raise if exc
 
-def _retry(fn, *a, **kw):
+def _retry(fn: Callable[..., T], *a: Any, **kw: Any) -> T:
+    """
+    Retry a function with exponential backoff.
+    
+    Args:
+        fn: Function to retry
+        *a: Positional arguments to pass to the function
+        **kw: Keyword arguments to pass to the function
+        
+    Returns:
+        The result of the function call
+        
+    Raises:
+        Exception: If all retries fail
+    """
     for i in range(_MAX_RETRY):
         try:
             return fn(*a, **kw)
         except Exception as e:
-            if i == _MAX_RETRY-1: raise
-            time.sleep(0.5 * (i+1))
+            if i == _MAX_RETRY - 1:
+                logger.error(f"Failed after {_MAX_RETRY} retries: {e}")
+                raise
+            sleep_time = 0.5 * (i + 1)
+            logger.warning(f"Retry {i+1}/{_MAX_RETRY} after {sleep_time}s: {e}")
+            time.sleep(sleep_time)
+    
+    # This should never be reached due to the raise in the exception handler
+    raise RuntimeError("Unexpected error in retry logic")
 
 # ---------------- public helpers ----------------
 
-def save_project(row: Dict[str,Any]) -> str:
+def save_project(row: Dict[str, Any]) -> str:
+    """
+    Save a project to the database.
+    
+    Args:
+        row: Project data to save
+        
+    Returns:
+        str: ID of the created project
+    """
     res = _retry(_sb.table("projects").insert, row).execute()
     return res.data[0]["id"]
 
-def save_project_photos(pid: str, photos: List[Dict[str,Any]]) -> None:
+def save_project_photos(pid: str, photos: List[Dict[str, Any]]) -> None:
+    """
+    Save project photos to the database.
+    
+    Args:
+        pid: Project ID
+        photos: List of photo metadata dictionaries
+    """
     for p in photos:
         _retry(_sb.table("project_photos").insert, {"project_id": pid, **p}).execute()
 
-def get_project(pid: str) -> Dict[str,Any]:
+def get_project(pid: str) -> Dict[str, Any]:
+    """
+    Get project by ID.
+    
+    Args:
+        pid: Project ID
+        
+    Returns:
+        Dict: Project data
+    """
     res = _retry(_sb.table("projects").select("*", count="exact").eq("id", pid)).execute()
     return res.data[0]
 
-def list_project_photos(pid: str):
+def list_project_photos(pid: str) -> List[Dict[str, Any]]:
+    """
+    List photos for a project.
+    
+    Args:
+        pid: Project ID
+        
+    Returns:
+        List[Dict]: List of photo data
+    """
     return _retry(_sb.table("project_photos").select("*").eq("project_id", pid)).execute().data
