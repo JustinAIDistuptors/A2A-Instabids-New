@@ -1,9 +1,18 @@
-from google.adk import Agent
+from instabids_google.adk import LlmAgent as Agent
 from instabids.tools import supabase_tools
 from memory.persistent_memory import PersistentMemory
 
 # Create a function to get the contractor agent with memory injection
 def create_contractor_agent(memory: PersistentMemory = None) -> Agent:
+    """
+    Create a contractor agent with optional memory injection.
+    
+    Args:
+        memory: Optional persistent memory system
+        
+    Returns:
+        Agent instance configured for contractor operations
+    """
     return Agent(
         name="ContractorDispatcher",
         tools=[*supabase_tools],
