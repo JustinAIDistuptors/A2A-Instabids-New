@@ -5,6 +5,8 @@ from instabids.tools import supabase_tools, openai_vision_tool
 from memory.persistent_memory import PersistentMemory
 from instabids.data import project_repo as repo
 from instabids.agents.job_classifier import classify
+from instabids.a2a_comm import send_envelope, on_envelope  # NEW
+from instabids.a2a.events import EVENT_SCHEMAS
 from typing import List, Any
 from contextlib import suppress
 
@@ -40,4 +42,14 @@ class HomeownerAgent(LlmAgent):
         except Exception as err:
             # TODO: logging
             raise
+        # --- emit A2A envelope -----------------------------------------
+        payload = {"project_id": pid, "homeowner_id": row["homeowner_id"]}
+        send_envelope("project.created", payload)
         return pid
+
+# ------------------------------------------------------------------
+# listen for incoming events (example)
+@on_envelope("bid.accepted")
+async def _handle_bid_accepted(evt: dict):  # noqa: D401
+    # placeholder: update memory, notify homeowner, etc.
+    pass
