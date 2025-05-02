@@ -1,6 +1,6 @@
 """A2A communication utilities for envelope-based event handling."""
 from __future__ import annotations
-from typing import Any, Callable, Dict, List, Optional, TypeVar, cast, Awaitable
+from typing import Any, Callable, Dict, List, Optional, TypeVar, cast, Awaitable, Coroutine
 import asyncio
 import functools
 import json
@@ -43,6 +43,20 @@ def on_envelope(event_type: str) -> Callable[[F], F]:
         return func
     return decorator
 
+async def _dispatch_handler(handler: Callable[..., Awaitable[Any]], payload: Dict[str, Any]) -> None:
+    """
+    Dispatch an event to a handler with error handling.
+    
+    Args:
+        handler: The event handler function
+        payload: The event payload
+    """
+    try:
+        await handler(payload)
+    except Exception as e:
+        handler_name = getattr(handler, "__name__", str(handler))
+        logger.error(f"Error in handler {handler_name}: {e}", exc_info=True)
+
 def send_envelope(event_type: str, payload: Dict[str, Any]) -> None:
     """
     Send an event envelope to registered handlers.
@@ -62,6 +76,7 @@ def send_envelope(event_type: str, payload: Dict[str, Any]) -> None:
     # Dispatch to any registered handlers
     if event_type in _event_handlers:
         for handler in _event_handlers[event_type]:
-            asyncio.create_task(handler(payload))
+            # Fix: Use _dispatch_handler to ensure proper coroutine for create_task
+            asyncio.create_task(_dispatch_handler(handler, payload))
     
     # TODO: Add external event bus integration
