@@ -79,6 +79,22 @@ class LlmAgent:
         
         return response
     
+    async def chat(self, message: UserMessage) -> AgentMessage:
+        """
+        Process a user message and return an agent message.
+        
+        This is a convenience method that wraps process_message and returns
+        an AgentMessage instead of a dictionary.
+        
+        Args:
+            message: The user message to process
+            
+        Returns:
+            An AgentMessage containing the agent's response
+        """
+        response = await self.process_message(message)
+        return AgentMessage(response["content"], self.name)
+    
     async def _generate_response(self, message: BaseMessage, **kwargs) -> Dict[str, Any]:
         """
         Generate a response to a message.
