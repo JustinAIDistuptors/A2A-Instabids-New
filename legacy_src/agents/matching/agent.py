@@ -8,6 +8,8 @@ import logging
 from typing import Any, Dict, Optional, List
 import os
 import uuid  # Import uuid
+import json  # Add missing json import
+import datetime  # Add missing datetime import
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -42,321 +44,176 @@ try:
     logger.info(f"Loaded agent registry: {list(AGENT_REGISTRY.keys())}")
 except json.JSONDecodeError:
     logger.error(
-        "Failed to parse AGENT_REGISTRY env var as JSON. Using default fallbacks."
+        "Failed to parse AGENT_REGISTRY env var as JSON. Using empty registry."
     )
     AGENT_REGISTRY = {}
 
-DEFAULT_ENDPOINTS = {
-    "homeowner-agent-001": "http://localhost:8001",
-    "contractor-agent-001": "http://localhost:8003",
-    "bid-card-agent-001": "http://localhost:8002",
-    "matching-agent-001": "http://localhost:8004",
-    "messaging-agent-001": "http://localhost:8005",
-    "outreach-agent-001": "http://localhost:8006",
-}
+# --- Supabase Setup ---
+# TODO: Move to shared database module
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 
-class MatchingAgent(AdkAgent):
+class MatchingAgent:
     """
-    InstaBids Agent responsible for matching projects with contractors.
+    Agent responsible for matching projects with contractors.
+    
+    This agent:
+    1. Receives new project notifications
+    2. Finds suitable contractors based on project details
+    3. Creates bid cards for contractors
+    4. Handles contractor responses
     """
 
-    def __init__(
-        self,
-        agent_info: Optional[A2aAgentInfo] = None,
-        supabase_client: Optional[Client] = None,  # Allow injecting client for testing
-    ):
-        """Initializes the MatchingAgent."""
-        agent_endpoint = os.getenv(
-            "MATCHING_AGENT_ENDPOINT", DEFAULT_ENDPOINTS.get(AGENT_ID)
-        )
-        self.agent_info = agent_info or A2aAgentInfo(
+    def __init__(self):
+        """Initialize the Matching Agent."""
+        self.agent_info = A2aAgentInfo(
             id=AGENT_ID,
             name="Matching Agent",
-            description="Matches projects (Bid Cards) with qualified contractors.",
-            endpoint=agent_endpoint,
-            capabilities=["project_matching", "contractor_filtering"],
+            description="Matches projects with suitable contractors",
+            capabilities=["project_matching", "bid_card_creation"],
         )
-        logger.info(f"Initializing MatchingAgent (ID: {self.agent_info.id})")
 
-        # Initialize Supabase client if not injected
-        if supabase_client:
-            self.db: Client = supabase_client
+        # Initialize Supabase client if credentials available
+        self.db = None
+        if SUPABASE_URL and SUPABASE_KEY:
+            try:
+                self.db = create_client(SUPABASE_URL, SUPABASE_KEY)
+                logger.info("Successfully connected to Supabase")
+            except Exception as e:
+                logger.error(f"Failed to connect to Supabase: {e}", exc_info=True)
         else:
-            supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
-            supabase_key: Optional[str] = os.getenv("SUPABASE_ANON_KEY")
-            if not supabase_url or not supabase_key:
-                logger.error(
-                    "SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables."
-                )
-                self.db = None
-            else:
-                try:
-                    self.db: Client = create_client(supabase_url, supabase_key)
-                    logger.info("Supabase client initialized successfully.")
-                except Exception as e:
-                    logger.error(f"Failed to initialize Supabase client: {e}")
-                    self.db = None
+            logger.warning(
+                "Supabase credentials not found. Database operations will be unavailable."
+            )
 
-    async def handle_create_task(self, task: Task) -> None:
+        # Initialize ADK agent (placeholder)
+        # self.adk_agent = AdkAgent(name="MatchingAgent")
+
+        # Task tracking
+        self._active_tasks: Dict[TaskId, Task] = {}
+
+    async def process_task(self, task: Task) -> None:
         """
-        Handles tasks like finding contractors for a project or projects for a contractor.
+        Process an incoming task.
+        
+        Args:
+            task: The task to process
         """
-        logger.info(f"MatchingAgent received task: {task.id} - '{task.description}'")
-        await self._update_task_status(task.id, "IN_PROGRESS")  # Use helper
+        logger.info(f"Processing task: {task.id} - {task.type}")
 
-        if not self.db:
-            error_msg = "Supabase client not available. Cannot process matching task."
-            logger.error(f"Task {task.id}: {error_msg}")
-            await self._update_task_status(task.id, "FAILED", error_message=error_msg)
-            return
+        # Store task in our active tasks
+        self._active_tasks[task.id] = task
 
-        # 1. Determine task type from description or metadata
-        task_type = task.metadata.get("match_type") if task.metadata else None
-        if not task_type:
-            if "find contractors" in task.description.lower():
-                task_type = "find_contractors"
-            elif "find projects" in task.description.lower():
-                task_type = "find_projects"
+        # Store task in DB
+        await self._store_task(task)
+
+        # Update task status to IN_PROGRESS
+        await self._update_task_status(task.id, "IN_PROGRESS")
+
+        try:
+            # Handle task based on type
+            if task.type == "match_project":
+                await self._handle_match_project(task)
+            elif task.type == "process_contractor_response":
+                await self._handle_contractor_response(task)
             else:
-                error_msg = "Could not determine match type."
-                logger.error(f"Task {task.id}: {error_msg}")
+                logger.warning(f"Unknown task type: {task.type}")
                 await self._update_task_status(
-                    task.id, "FAILED", error_message=error_msg
+                    task.id, "FAILED", error_message=f"Unknown task type: {task.type}"
                 )
                 return
 
-        results = None
-        error_msg = None
-        try:
-            if task_type == "find_contractors":
-                project_id = task.metadata.get("project_id") if task.metadata else None
-                if not project_id:
-                    error_msg = "Missing project_id for find_contractors task."
-                    logger.error(f"Task {task.id}: {error_msg}")
-                else:
-                    logger.info(
-                        f"Task {task.id}: Finding contractors for project {project_id}"
-                    )
-                    results = await self.find_contractors_for_project(project_id)
-
-            elif task_type == "find_projects":
-                contractor_id = (
-                    task.metadata.get("contractor_id") if task.metadata else None
-                )
-                if not contractor_id:
-                    error_msg = "Missing contractor_id for find_projects task."
-                    logger.error(f"Task {task.id}: {error_msg}")
-                else:
-                    logger.info(
-                        f"Task {task.id}: Finding projects for contractor {contractor_id}"
-                    )
-                    results = await self.find_projects_for_contractor(
-                        contractor_id, task.metadata
-                    )
-
-            else:
-                error_msg = f"Unknown match type '{task_type}'."
-                logger.warning(f"Task {task.id}: {error_msg}")
-
-            # 4. Update task status with results or error
-            if error_msg:
-                await self._update_task_status(
-                    task.id, "FAILED", error_message=error_msg
-                )
-            elif results is not None:
-                logger.info(
-                    f"Task {task.id}: Matching process completed. Results count: {len(results)}"
-                )
-                # TODO: Create result artifact if results are large or complex
-                await self._update_task_status(
-                    task.id, "COMPLETED", result={"matches": results}
-                )
-            else:
-                logger.warning(f"Task {task.id}: Matching process yielded no results.")
-                await self._update_task_status(
-                    task.id, "COMPLETED", result={"matches": []}
-                )
+            # Mark task as completed
+            await self._update_task_status(task.id, "COMPLETED")
 
         except Exception as e:
-            error_msg = f"Error during matching process: {e}"
-            logger.error(f"Task {task.id}: {error_msg}", exc_info=True)
-            await self._update_task_status(task.id, "FAILED", error_message=error_msg)
+            logger.error(f"Error processing task {task.id}: {e}", exc_info=True)
+            await self._update_task_status(
+                task.id, "FAILED", error_message=f"Error: {str(e)}"
+            )
 
-    async def handle_message(self, message: Message) -> None:
-        """Handles incoming messages (if applicable)."""
-        logger.info(
-            f"MatchingAgent received message: {message.id} for task {message.task_id}"
-        )
-        # Might receive updates about contractor availability or new projects.
-        print(
-            f"TODO: Implement message handling logic if needed for message {message.id}"
-        )
+    async def _handle_match_project(self, task: Task) -> None:
+        """
+        Handle a match_project task.
+        
+        Args:
+            task: The task containing project details
+        """
+        logger.info(f"Handling match_project task: {task.id}")
 
-    # --- Implemented Matching Logic Methods ---
+        # Extract project details from task
+        project_id = task.details.get("project_id")
+        if not project_id:
+            raise ValueError("No project_id provided in task details")
 
-    async def find_contractors_for_project(
-        self, project_id: str
-    ) -> Optional[List[AgentId]]:
-        """Finds suitable contractor Agent IDs for a given project ID."""
-        logger.info(f"Finding contractors for project {project_id}...")
+        # TODO: Implement project matching logic
+        # 1. Retrieve project details from database
+        # 2. Find suitable contractors
+        # 3. Create bid cards
+        # 4. Notify contractors
+
+        # Placeholder implementation
+        logger.info(f"Would match project {project_id} with contractors")
+
+    async def _handle_contractor_response(self, task: Task) -> None:
+        """
+        Handle a contractor response to a bid card.
+        
+        Args:
+            task: The task containing response details
+        """
+        logger.info(f"Handling contractor_response task: {task.id}")
+
+        # Extract response details from task
+        bid_id = task.details.get("bid_id")
+        response = task.details.get("response")
+        if not bid_id or response is None:
+            raise ValueError("Missing bid_id or response in task details")
+
+        # TODO: Implement response handling logic
+        # 1. Update bid status in database
+        # 2. Notify homeowner if accepted
+        # 3. Update project status if needed
+
+        # Placeholder implementation
+        logger.info(f"Would process contractor response for bid {bid_id}: {response}")
+
+    async def _store_task(self, task: Task) -> None:
+        """
+        Store a task in the database.
+        
+        Args:
+            task: The task to store
+        """
         if not self.db:
-            return None
+            logger.warning("Cannot store task: DB client not available")
+            return
+
+        # Convert task to DB format
+        task_data = {
+            "a2a_task_id": task.id,
+            "type": task.type,
+            "status": "RECEIVED",
+            "details": json.dumps(task.details),
+            "created_at": datetime.datetime.utcnow().isoformat(),
+            "updated_at": datetime.datetime.utcnow().isoformat(),
+        }
 
         try:
-            # 1. Fetch project details (category, location_description)
-            project_res = (
-                await self.db.table("projects")
-                .select("category, location_description")
-                .eq("id", project_id)
-                .maybe_single()
-                .execute()
-            )
-            if not project_res.data:
-                logger.error(f"Project {project_id} not found for matching.")
-                return None
-            project_category = project_res.data.get("category")
-            project_location = project_res.data.get(
-                "location_description"
-            )  # Assuming zip code for now
-
-            if not project_category or not project_location:
-                logger.warning(
-                    f"Project {project_id} missing category or location for matching."
-                )
-                return []  # Return empty list if essential criteria missing
-
-            # 2. Fetch contractor profiles matching criteria
-            # Basic matching: category array contains project category AND location matches (simple zip match for now)
-            # TODO: Implement more sophisticated location matching (service area polygons)
-            # TODO: Implement vector search for description/profile matching
-            # TODO: Add filtering based on availability, ratings etc.
-            # TODO: Map contractor user UUIDs back to Agent IDs
-            query = self.db.table("contractor_profiles").select(
-                "id"
-            )  # Select user ID (which maps to agent ID for now)
-            query = query.contains(
-                "service_categories", [project_category]
-            )  # Check if category is in the array
-            # Simple zip code match - needs improvement for service areas
-            query = query.eq(
-                "service_area_description", project_location
-            )  # Placeholder for area matching
-
-            contractor_res = await query.execute()
-
-            if not contractor_res.data:
-                logger.info(
-                    f"No contractors found matching criteria for project {project_id}."
-                )
-                return []
-
-            # Map contractor user UUIDs to Agent IDs (using placeholder convention)
-            # CRITICAL TODO: Replace this with robust mapping (e.g., from AGENT_REGISTRY or DB)
-            matching_agent_ids = [
-                f"contractor-agent-{profile['id']}" for profile in contractor_res.data
-            ]
-            logger.info(
-                f"Found {len(matching_agent_ids)} potential contractors for project {project_id}."
-            )
-            return matching_agent_ids
-
-        except Exception as e:
-            logger.error(
-                f"Error finding contractors for project {project_id}: {e}",
-                exc_info=True,
-            )
-            return None
-
-    async def find_projects_for_contractor(
-        self, contractor_id: str, criteria: Optional[Dict] = None
-    ) -> Optional[List[str]]:
-        """Finds suitable project IDs for a given contractor Agent ID."""
-        logger.info(
-            f"Finding projects for contractor {contractor_id} with criteria: {criteria}"
-        )
-        if not self.db:
-            return None
-
-        try:
-            # 1. Map contractor Agent ID to User UUID
-            # CRITICAL TODO: Replace placeholder mapping
-            contractor_user_id = None
-            agent_details = AGENT_REGISTRY.get(contractor_id)
-            if agent_details and agent_details.get("user_id"):
-                contractor_user_id = agent_details["user_id"]
+            insert_res = await self.db.table("tasks").insert(task_data).execute()
+            if insert_res.data:
+                logger.info(f"Successfully stored task {task.id} in DB")
             else:
-                # Attempt reverse convention (less reliable)
-                try:
-                    uuid_part = contractor_id.split("contractor-agent-")[-1]
-                    uuid.UUID(uuid_part)  # Validate format
-                    contractor_user_id = uuid_part
-                    logger.warning(
-                        f"Using naming convention to map agent {contractor_id} to user {contractor_user_id}"
-                    )
-                except:
-                    logger.error(f"Could not map agent {contractor_id} to user UUID.")
-                    return None
-
-            # 2. Fetch contractor profile (categories, location)
-            profile_res = (
-                await self.db.table("contractor_profiles")
-                .select("service_categories, service_area_description")
-                .eq("id", contractor_user_id)
-                .maybe_single()
-                .execute()
-            )
-            if not profile_res.data:
-                logger.error(
-                    f"Contractor profile not found for user {contractor_user_id} (Agent: {contractor_id})."
-                )
-                return None
-            contractor_categories = profile_res.data.get("service_categories", [])
-            contractor_location = profile_res.data.get(
-                "service_area_description"
-            )  # Zip code
-
-            if not contractor_categories or not contractor_location:
-                logger.warning(
-                    f"Contractor {contractor_id} missing categories or location."
-                )
-                return []
-
-            # 3. Fetch open projects matching criteria
-            query = self.db.table("projects").select("id")
-            query = query.eq("status", "open")
-            query = query.contained_by(
-                "category", contractor_categories
-            )  # Project category must be one the contractor handles
-            query = query.eq(
-                "location_description", contractor_location
-            )  # Simple zip match
-
-            # TODO: Add criteria from task metadata if provided (e.g., specific project type)
-            # if criteria and criteria.get("project_type"):
-            #     query = query.eq("metadata->>project_type", criteria["project_type"])
-
-            project_res = await query.execute()
-
-            if not project_res.data:
-                logger.info(
-                    f"No matching open projects found for contractor {contractor_id}."
-                )
-                return []
-
-            matching_project_ids = [project["id"] for project in project_res.data]
-            logger.info(
-                f"Found {len(matching_project_ids)} potential projects for contractor {contractor_id}."
-            )
-            # TODO: Return Bid Card Artifact IDs instead? Requires linking projects to bid cards.
-            return matching_project_ids
-
+                logger.warning(f"No data returned when storing task {task.id}")
         except Exception as e:
-            logger.error(
-                f"Error finding projects for contractor {contractor_id}: {e}",
-                exc_info=True,
-            )
-            return None
+            # Check if it's a duplicate key error
+            if "duplicate key" in str(e):
+                logger.warning(
+                    f"Task {task.id} already exists in DB (detected via details). Skipping initial store."
+                )
+            else:
+                logger.error(f"Failed to store initial task {task.id}: {e}", exc_info=True)
 
     async def _update_task_status(
         self,
@@ -364,9 +221,16 @@ class MatchingAgent(AdkAgent):
         status: TaskStatus,
         result: Optional[Dict] = None,
         error_message: Optional[str] = None,
-    ):
-        """Updates task status in the database."""
-        # (Implementation copied from HomeownerAgent - TODO: Centralize this utility)
+    ) -> None:
+        """
+        Updates task status in the database.
+        
+        Args:
+            task_id: ID of the task to update
+            status: New status to set
+            result: Optional result data
+            error_message: Optional error message
+        """
         log_message = f"Task {task_id}: Status changed to {status}."
         if result:
             log_message += f" Result: {result}"
@@ -375,9 +239,7 @@ class MatchingAgent(AdkAgent):
         logger.info(log_message)
 
         if not self.db:
-            logger.error(
-                f"Cannot update task {task_id} status: DB client not available."
-            )
+            logger.error(f"Cannot update task {task_id} status: DB client not available.")
             return
 
         update_data = {
