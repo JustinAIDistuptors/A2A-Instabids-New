@@ -1,6 +1,6 @@
 """HomeownerAgent now uses advanced classifier with confidence."""
 from __future__ import annotations
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict
 import logging
 
 # Use instabids_google.adk instead of google.adk to fix import conflicts
@@ -17,7 +17,20 @@ logger = logging.getLogger(__name__)
 enable_tracing("stdout")
 
 class HomeownerAgent(LlmAgent):
+    """
+    Agent responsible for handling homeowner-related operations.
+    
+    This agent classifies projects, stores them in the database,
+    and emits events when operations are completed successfully.
+    """
+    
     def __init__(self, memory: Optional[PersistentMemory] = None):
+        """
+        Initialize the HomeownerAgent.
+        
+        Args:
+            memory: Optional persistent memory system
+        """
         super().__init__(
             name="HomeownerAgent",
             tools=[*supabase_tools, openai_vision_tool],
@@ -27,10 +40,15 @@ class HomeownerAgent(LlmAgent):
             memory=memory,
         )
 
-    # ----------------------------------------------------------
-    def start_project(self, description: str, images: Optional[List[dict]] = None) -> str:
+    def start_project(self, description: str, images: Optional[List[Dict[str, Any]]] = None) -> str:
         """
-        Start a new homeowner project with classification and persistence.
+        Start a new homeowner project with optional images.
+        
+        This method:
+        1. Classifies the project based on description and image tags
+        2. Saves the project to the database within a transaction
+        3. Saves any associated project photos
+        4. Emits an A2A event upon successful creation
         
         Args:
             description: Text description of the project
@@ -38,8 +56,11 @@ class HomeownerAgent(LlmAgent):
             
         Returns:
             str: The project ID of the created project
+            
+        Raises:
+            Exception: If there's an error saving the project
         """
-        vision_tags: list[str] = [img.get("tag", "") for img in images] if images else []
+        vision_tags: List[str] = [img.get("tag", "") for img in images] if images else []
         cls = classify(description, vision_tags)
         row = {
             "homeowner_id": "TODO_user_id",
@@ -66,8 +87,7 @@ class HomeownerAgent(LlmAgent):
 # ------------------------------------------------------------------
 # listen for incoming events (example)
 @on_envelope("bid.accepted")
-async def _handle_bid_accepted(evt: dict):  # noqa: D401
+async def _handle_bid_accepted(evt: Dict[str, Any]) -> None:  # noqa: D401
     """Handle bid accepted events."""
     # placeholder: update memory, notify homeowner, etc.
     logger.info(f"Received bid.accepted event: {evt}")
-    pass
