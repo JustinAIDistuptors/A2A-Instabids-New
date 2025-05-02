@@ -7,7 +7,8 @@ from typing import Dict, List, Any, Optional
 import json
 import datetime
 
-from google.adk.memory import Memory
+# Fix: Update import to use instabids_google.adk.memory instead of google.adk.memory
+from instabids_google.adk.memory import Memory
 from supabase import Client
 
 logger = logging.getLogger(__name__)
@@ -44,48 +45,47 @@ class PersistentMemory(Memory):
             )
 
             if result.data:
-                self._memory_cache = result.data.get("memory_data", {})
+                self._memory_cache = json.loads(result.data["memory_data"])
                 self._is_loaded = True
-                logger.info(f"Successfully loaded memory for user {self.user_id}")
+                logger.info(f"Memory loaded for user {self.user_id}")
                 return True
             else:
-                # Initialize new memory
-                logger.info(
-                    f"No existing memory found for user {self.user_id}. Initializing."
-                )
+                # Initialize empty memory structure
                 self._memory_cache = {
                     "interactions": [],
-                    "context": {},
                     "learned_preferences": {},
-                    "creation_date": datetime.datetime.utcnow().isoformat(),
+                    "context": {},
                 }
                 self._is_loaded = True
-                self._is_dirty = True
-                await self.save()  # Create initial memory record
+                self._is_dirty = True  # Mark as dirty to save the initial structure
+                logger.info(f"Initialized new memory for user {self.user_id}")
                 return True
 
         except Exception as e:
-            logger.error(
-                f"Error loading memory for user {self.user_id}: {e}", exc_info=True
-            )
+            logger.error(f"Failed to load memory for user {self.user_id}: {e}")
             return False
 
     async def save(self) -> bool:
-        """Save current memory state to database."""
+        """Save memory to database if dirty."""
+        if not self._is_loaded:
+            logger.warning(f"Attempted to save unloaded memory for user {self.user_id}")
+            return False
+
         if not self._is_dirty:
+            logger.debug(f"Memory for user {self.user_id} is not dirty, skipping save")
             return True
 
         try:
             logger.info(f"Saving memory for user {self.user_id}")
-            # Update timestamp before saving
-            self._memory_cache["last_updated"] = datetime.datetime.utcnow().isoformat()
-
+            serialized = json.dumps(self._memory_cache)
+            
+            # Upsert memory data
             result = (
                 await self.db.table("user_memories")
                 .upsert(
                     {
                         "user_id": self.user_id,
-                        "memory_data": self._memory_cache,
+                        "memory_data": serialized,
                         "updated_at": datetime.datetime.utcnow().isoformat(),
                     }
                 )
@@ -94,154 +94,68 @@ class PersistentMemory(Memory):
 
             if result.data:
                 self._is_dirty = False
-                logger.info(f"Successfully saved memory for user {self.user_id}")
+                logger.info(f"Memory saved for user {self.user_id}")
                 return True
             else:
-                logger.error(f"Failed to save memory for user {self.user_id}")
+                logger.error(f"Failed to save memory for user {self.user_id}: No data returned")
                 return False
 
         except Exception as e:
-            logger.error(
-                f"Error saving memory for user {self.user_id}: {e}", exc_info=True
-            )
+            logger.error(f"Failed to save memory for user {self.user_id}: {e}")
             return False
 
-    async def add_interaction(
-        self, interaction_type: str, data: Dict[str, Any]
-    ) -> bool:
-        """Record a new user interaction in memory."""
-        if not self._is_loaded and not await self.load():
-            return False
-
-        try:
-            # Add to in-memory cache
-            timestamp = datetime.datetime.utcnow().isoformat()
-            interaction = {
-                "type": interaction_type,
-                "timestamp": timestamp,
-                "data": data,
-            }
-
-            if "interactions" not in self._memory_cache:
-                self._memory_cache["interactions"] = []
-
-            self._memory_cache["interactions"].append(interaction)
-            self._is_dirty = True
-
-            # Also store in detailed interaction history table
-            await self.db.table("user_memory_interactions").insert(
-                {
-                    "user_id": self.user_id,
-                    "interaction_type": interaction_type,
-                    "interaction_data": data,
-                    "created_at": timestamp,
-                }
-            ).execute()
-
-            # Process for potential preference learning
-            await self._extract_preferences(interaction_type, data)
-
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"Error adding interaction for user {self.user_id}: {e}", exc_info=True
-            )
-            return False
-
-    async def _extract_preferences(self, interaction_type: str, data: Dict[str, Any]):
-        """Extract and update user preferences from interaction data."""
-        try:
-            # Example preference extraction logic - customize based on interaction types
-            if interaction_type == "project_creation":
-                # Extract project type preference
-                if "project_type" in data:
-                    await self._update_preference(
-                        "preferred_project_types",
-                        data["project_type"],
-                        "project_creation",
-                    )
-
-                # Extract timeline preference
-                if "timeline" in data:
-                    await self._update_preference(
-                        "timeline_preference", data["timeline"], "project_creation"
-                    )
-
-            elif interaction_type == "contractor_selection":
-                # Extract contractor preference indicators
-                if "selected_contractor" in data and "contractor_attributes" in data:
-                    for attr, value in data["contractor_attributes"].items():
-                        await self._update_preference(
-                            f"contractor_{attr}_preference",
-                            value,
-                            "contractor_selection",
-                        )
-        except Exception as e:
-            logger.error(
-                f"Error extracting preferences for user {self.user_id}: {e}",
-                exc_info=True,
-            )
-
-    async def _update_preference(self, preference_key: str, value: Any, source: str):
-        """Update a user preference in the database and memory cache."""
-        try:
-            # Update in-memory representation
-            if "learned_preferences" not in self._memory_cache:
-                self._memory_cache["learned_preferences"] = {}
-
-            if preference_key not in self._memory_cache["learned_preferences"]:
-                self._memory_cache["learned_preferences"][preference_key] = {
-                    "value": value,
-                    "count": 1,
-                }
-            else:
-                # Simple counting-based preference strengthening
-                current = self._memory_cache["learned_preferences"][preference_key]
-                if current["value"] == value:
-                    current["count"] += 1
-                else:
-                    # Different value - handle conflict based on count
-                    if current["count"] <= 2:  # Threshold for changing preference
-                        current["value"] = value
-                        current["count"] = 1
-                    # Else keep existing preference as it's stronger
-
-            self._is_dirty = True
-
-            # Store in preferences table with confidence score
-            count = self._memory_cache["learned_preferences"][preference_key]["count"]
-            confidence = min(0.5 + (count * 0.1), 0.95)  # Simple confidence scaling
-
-            await self.db.table("user_preferences").upsert(
-                {
-                    "user_id": self.user_id,
-                    "preference_key": preference_key,
-                    "preference_value": value,
-                    "confidence": confidence,
-                    "source": source,
-                    "updated_at": datetime.datetime.utcnow().isoformat(),
-                }
-            ).execute()
-
-        except Exception as e:
-            logger.error(
-                f"Error updating preference for user {self.user_id}: {e}", exc_info=True
-            )
-
-    # Implement required Memory interface methods
-    def get(self, key: str) -> Any:
-        """Get a value from memory by key."""
+    def add_interaction(self, interaction_type: str, data: Dict[str, Any]) -> None:
+        """Add a user interaction to memory."""
         if not self._is_loaded:
-            # Synchronous method can't await load(), so return None if not loaded
             logger.warning(
-                f"Attempted to get key '{key}' from unloaded memory for user {self.user_id}"
+                f"Attempted to add interaction to unloaded memory for user {self.user_id}"
             )
-            return None
-        return self._memory_cache.get("context", {}).get(key)
+            return
 
-    def set(self, key: str, value: Any) -> None:
-        """Set a value in memory by key."""
+        if "interactions" not in self._memory_cache:
+            self._memory_cache["interactions"] = []
+
+        # Add timestamp if not provided
+        if "timestamp" not in data:
+            data["timestamp"] = datetime.datetime.utcnow().isoformat()
+
+        interaction = {
+            "type": interaction_type,
+            "data": data,
+            "timestamp": data["timestamp"],
+        }
+
+        self._memory_cache["interactions"].append(interaction)
+        self._is_dirty = True
+
+        # Trim interactions if too many (keep most recent 100)
+        if len(self._memory_cache["interactions"]) > 100:
+            self._memory_cache["interactions"] = sorted(
+                self._memory_cache["interactions"],
+                key=lambda x: x["timestamp"],
+                reverse=True,
+            )[:100]
+
+    def set_preference(self, preference_key: str, value: Any, confidence: float = 1.0) -> None:
+        """Set a learned user preference with confidence level."""
+        if not self._is_loaded:
+            logger.warning(
+                f"Attempted to set preference to unloaded memory for user {self.user_id}"
+            )
+            return
+
+        if "learned_preferences" not in self._memory_cache:
+            self._memory_cache["learned_preferences"] = {}
+
+        self._memory_cache["learned_preferences"][preference_key] = {
+            "value": value,
+            "confidence": confidence,
+            "updated_at": datetime.datetime.utcnow().isoformat(),
+        }
+        self._is_dirty = True
+
+    def set_context(self, key: str, value: Any) -> None:
+        """Set a context value in memory."""
         if not self._is_loaded:
             logger.warning(
                 f"Attempted to set key '{key}' to unloaded memory for user {self.user_id}"
