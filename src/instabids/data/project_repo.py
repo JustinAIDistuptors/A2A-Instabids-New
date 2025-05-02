@@ -5,7 +5,9 @@ import os
 import time
 import logging
 from supabase import create_client  # type: ignore
-from supabase.lib.client import Client  # type: ignore
+
+# Fix: Import Client directly from supabase instead of supabase.lib.client
+from supabase import Client  # type: ignore
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -41,19 +43,18 @@ def _retry(fn: Callable[..., T], *a: Any, **kw: Any) -> T:
         **kw: Keyword arguments to pass to the function
         
     Returns:
-        The result of the function call
+        The result of the function
         
     Raises:
-        Exception: If all retries fail
+        Exception: If the function fails after max retries
     """
+    last_exc = None
     for i in range(_MAX_RETRY):
         try:
             return fn(*a, **kw)
         except Exception as e:
-            if i == _MAX_RETRY - 1:
-                logger.error(f"Failed after {_MAX_RETRY} retries: {e}")
-                raise
-            sleep_time = 0.5 * (i + 1)
+            last_exc = e
+            sleep_time = 2 ** i  # Exponential backoff
             logger.warning(f"Retry {i+1}/{_MAX_RETRY} after {sleep_time}s: {e}")
             time.sleep(sleep_time)
     
