@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from pathlib import Path
 
-from google.adk import LLMAgent, enable_tracing
-from google.adk.messages import UserMessage
+from instabids_google.adk import LlmAgent as LLMAgent, enable_tracing
+from instabids_google.adk.messages import UserMessage
 from instabids.tools import supabase_tools, bid_visualization_tool
 from instabids.a2a_comm import send_envelope
 from memory.persistent_memory import PersistentMemory
@@ -29,37 +29,43 @@ class ContractorAgent(LLMAgent):
             name="ContractorAgent",
             tools=[*supabase_tools, bid_visualization_tool],
             system_prompt=SYSTEM_PROMPT,
-            memory=memory or PersistentMemory(),
+            memory=memory,
         )
-    
-    # ────────────────────────────────────────────────────────────────────────
-    # Public API used by FastAPI / CLI
-    # ────────────────────────────────────────────────────────────────────────
-
+        
     async def submit_bid(
         self,
-        contractor_id: str,
         project_id: str,
+        contractor_id: str,
         bid_details: Dict[str, Any],
-        project_images: List[Path] | None = None
-    ) -> dict[str, Any]:
-        """Main entry. Accepts bid details and optional project images."""
+        image_paths: List[Path] = []
+    ) -> Dict[str, Any]:
+        """
+        Submit a bid for a project.
         
-        # 1) Process project images if provided
+        Args:
+            project_id: The ID of the project to bid on
+            contractor_id: The ID of the contractor submitting the bid
+            bid_details: Dictionary containing bid details
+            image_paths: Optional list of paths to bid visualization images
+            
+        Returns:
+            Dict containing agent response, bid ID, and bid score
+        """
+        # Process any images
         image_context = {}
-        if project_images:
-            image_context = await self._process_images(project_images)
+        if image_paths:
+            image_context = await self._process_images(image_paths)
         
-        # 2) Build full prompt for ADK
-        prompt_parts = [f"Bid details: {bid_details}"]
-        if image_context:
-            prompt_parts.append(f"Project images context: {image_context}")
+        # Create user message for agent
+        user_message = UserMessage(
+            content=f"Submit bid for project {project_id} from contractor {contractor_id}"
+        )
         
-        user_msg = UserMessage("\n".join(prompt_parts))
-        response = await self.chat(user_msg)
+        # Process message with agent
+        response = await self.process(user_message)
         
-        # 3) Score bid competitiveness
-        bid_score = score_bid(bid_details, image_context)
+        # Score the bid
+        bid_score = await score_bid(project_id, bid_details)
         
         # 4) Persist bid to Supabase
         from instabids.data_access import save_bid  # local import to avoid circulars
