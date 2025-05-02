@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from datetime import datetime
 
-from google.adk import LLMAgent, enable_tracing
-from google.adk.messages import UserMessage
+from instabids_google.adk import LlmAgent as LLMAgent, enable_tracing
+from instabids_google.adk.messages import UserMessage
 from instabids.tools import supabase_tools, vector_search_tool
 from instabids.a2a_comm import send_envelope
 from memory.persistent_memory import PersistentMemory
@@ -30,49 +30,54 @@ class MatchingAgent(LLMAgent):
             name="MatchingAgent",
             tools=[*supabase_tools, vector_search_tool],
             system_prompt=SYSTEM_PROMPT,
-            memory=memory or PersistentMemory(),
+            memory=memory,
         )
-    
-    # ────────────────────────────────────────────────────────────────────────
-    # Public API used by FastAPI / CLI
-    # ────────────────────────────────────────────────────────────────────────
-
+        
     async def find_matches(
         self,
         project_id: str,
         max_results: int = 5
-    ) -> dict[str, Any]:
-        """Main entry. Find contractors for a specific project."""
+    ) -> Dict[str, Any]:
+        """
+        Find qualified contractors for a project.
         
-        # 1) Get project details from Supabase
-        from instabids.data_access import get_project_details
+        Args:
+            project_id: The ID of the project to match
+            max_results: Maximum number of matches to return
+            
+        Returns:
+            Dict containing agent response, matches, and match status
+        """
+        # Retrieve project from database
+        from instabids.data_access import get_project  # local import to avoid circulars
         
-        project = await get_project_details(project_id)
+        project = await get_project(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
         
-        # 2) Build prompt for ADK
-        prompt = f"Find matches for project: {project['description']}\nCategory: {project['category']}"
-        user_msg = UserMessage(prompt)
-        response = await self.chat(user_msg)
-        
-        # 3) Execute matching logic
+        # Execute matching logic
         matches = await self._execute_matching(project, max_results)
         
-        # 4) Persist matches to Supabase
-        from instabids.data_access import save_matches
+        # Create user message for agent
+        user_message = UserMessage(
+            content=f"Find matches for project {project_id} in category {project['category']}"
+        )
         
-        match_ids = await save_matches(project_id, matches)
+        # Process message with agent
+        response = await self.process(user_message)
         
-        # 5) Emit A2A envelope
-        await send_envelope("match.found", {
-            "project_id": project_id,
-            "matches": matches,
-            "timestamp": datetime.now().isoformat()
-        })
+        # Emit A2A envelope for matches found
+        if matches:
+            send_envelope("match.found", {
+                "project_id": project_id,
+                "matches": matches,
+                "timestamp": datetime.now().isoformat()
+            })
         
         return {
             "agent_response": response.content,
-            "match_ids": match_ids,
-            "matches": matches
+            "matches": matches,
+            "match_count": len(matches)
         }
     
     # ────────────────────────────────────────────────────────────────────────
