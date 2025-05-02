@@ -1,6 +1,6 @@
 """A2A communication utilities for envelope-based event handling."""
 from __future__ import annotations
-from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
+from typing import Any, Callable, Dict, List, Optional, TypeVar, cast, Awaitable
 import asyncio
 import functools
 import json
@@ -11,14 +11,13 @@ from functools import wraps
 logger = logging.getLogger(__name__)
 
 # Type definitions
-EventHandler = Callable[[Dict[str, Any]], Any]
-AsyncEventHandler = Callable[[Dict[str, Any]], Any]
-T = TypeVar('T')
+F = TypeVar('F', bound=Callable[..., Any])
+AsyncF = TypeVar('AsyncF', bound=Callable[..., Awaitable[Any]])
 
 # Registry of event handlers
-_event_handlers: Dict[str, List[AsyncEventHandler]] = {}
+_event_handlers: Dict[str, List[Callable[..., Awaitable[Any]]]] = {}
 
-def on_envelope(event_type: str) -> Callable[[T], T]:
+def on_envelope(event_type: str) -> Callable[[F], F]:
     """
     Decorator to register a handler for a specific event type.
     
@@ -28,7 +27,7 @@ def on_envelope(event_type: str) -> Callable[[T], T]:
     Returns:
         Decorator function
     """
-    def decorator(func: T) -> T:
+    def decorator(func: F) -> F:
         if event_type not in _event_handlers:
             _event_handlers[event_type] = []
             
@@ -39,7 +38,7 @@ def on_envelope(event_type: str) -> Callable[[T], T]:
                 return func(*args, **kwargs)
             _event_handlers[event_type].append(async_wrapper)
         else:
-            _event_handlers[event_type].append(cast(AsyncEventHandler, func))
+            _event_handlers[event_type].append(cast(Callable[..., Awaitable[Any]], func))
             
         return func
     return decorator
