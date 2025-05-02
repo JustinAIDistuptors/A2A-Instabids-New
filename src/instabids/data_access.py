@@ -31,10 +31,13 @@ except ImportError as e:
             logger.error("Attempted to acquire connection from dummy pool")
             return DummyConnection()
             
+    # Use DummyAsyncPG instead of redefining asyncpg
     if "asyncpg" not in globals():
-        class asyncpg:
+        class DummyAsyncPG:
             Pool = DummyPool
             Connection = DummyConnection
+        # Use the dummy implementation
+        asyncpg = DummyAsyncPG
 
 _supabase: Optional[Client] = None
 _pgpool: Optional[asyncpg.Pool] = None
