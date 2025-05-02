@@ -13,9 +13,9 @@ class LlmAgent:
     def __init__(
         self,
         name: str,
-        tools: List[Any] = None,
+        tools: Optional[List[Any]] = None,
         system_prompt: str = "",
-        memory: Any = None,
+        memory: Optional[Any] = None,
     ) -> None:
         """Initialize a new LlmAgent.
         
