@@ -1,21 +1,16 @@
 from pathlib import Path
-from google.adk.openapi import openapi_tool
+from supabase import create_client, Client
 
 # Load the spec that sits next to this file
 _SPEC_PATH = Path(__file__).with_name("openapi_supabase.yaml")
 
-# Create the toolset once at import-time
-supabase_toolset = openapi_tool.OpenAPIToolset.from_spec_file(
-    spec_path=_SPEC_PATH,
-    # Inject runtime base URL & headers using lambdas so they’re evaluated per call
-    base_url=lambda: "https://{}.supabase.co".format(
-        __import__("os").environ["SUPABASE_PROJECT_REF"]
-    ),
-    auth_headers=lambda: {
-        "apikey": __import__("os").environ["SUPABASE_KEY"],
-        "Authorization": f"Bearer {__import__('os').environ['SUPABASE_SERVICE_ROLE']}",
-    },
-)
+# Create Supabase client instance
+def create_supabase_client():
+    """Create and return a configured Supabase client instance."""
+    return create_client(
+        supabase_url=__import__("os").environ["SUPABASE_URL"],
+        supabase_key=__import__("os").environ["SUPABASE_ANON_KEY"]
+    )
 
-# Re-export the list of tools (ADK expects list[Tool])
-supabase_tools = supabase_toolset.tools
+# Export client factory function
+supabase_client = create_supabase_client

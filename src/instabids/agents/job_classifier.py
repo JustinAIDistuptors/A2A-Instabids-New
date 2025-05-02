@@ -1,36 +1,27 @@
-"""Simple rule‑based job classifier (placeholder until ML model)."""
+"""Job classification logic for HomeownerAgent."""
 from __future__ import annotations
+from typing import Literal
+import re
 
-from typing import Dict, Tuple
+JobCategory = Literal[
+    "ONE_OFF", "ONGOING_SERVICE", "HANDYMAN",
+    "LABOR_ONLY", "MULTI_PHASE", "EMERGENCY",
+]
 
-CATEGORIES = {
-    "roof": "One‑Off Project",
-    "lawn": "Ongoing Service",
-    "leak": "Handyman",
-    "demolition": "Labor‑Only",
-    "remodel": "Multi‑Phase Project",
-    "burst": "Emergency Repair",
+_KEYWORDS = {
+    "ONE_OFF": ["roof", "fence", "gate", "turf", "deck", "paint", "window replace"],
+    "ONGOING_SERVICE": ["lawn", "pool", "maintenance", "cleaning"],
+    "HANDYMAN": ["leaky", "patch", "door knob", "fixture", "install"],
+    "LABOR_ONLY": ["demo", "haul", "dig", "move"],
+    "MULTI_PHASE": ["kitchen", "bathroom", "remodel", "renovation"],
+    "EMERGENCY": ["burst", "no heat", "urgent", "emergency", "asap"],
 }
 
-URGENCY_KEYWORDS = {
-    "emergency": "Emergency",
-    "asap": "Urgent",
-    "dream": "Dream",
-}
-
-
-def classify_job(desc: str, vision_ctx: Dict) -> Dict[str, str]:
-    desc_lower = desc.lower()
-    category = "One‑Off Project"
-    for kw, cat in CATEGORIES.items():
-        if kw in desc_lower:
-            category = cat
-            break
-
-    urgency = "Dream"
-    for kw, urg in URGENCY_KEYWORDS.items():
-        if kw in desc_lower:
-        urgency = urg
-            break
-
-    return {"category": category, "urgency": urgency}
+def classify(text: str) -> JobCategory:
+    tl = text.lower()
+    for cat, words in _KEYWORDS.items():
+        if any(re.search(rf"\\b{re.escape(w)}\\b", tl) for w in words):
+            return cat  # type: ignore[return-value]
+    if "help" in tl and "now" in tl:
+        return "EMERGENCY"
+    return "ONE_OFF"

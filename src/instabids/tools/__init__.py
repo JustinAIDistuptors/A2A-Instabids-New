@@ -1,1 +1,1 @@
-from .supabase import supabase_tools  # noqa: F401
+from .supabase import supabase_client  # noqa: F401
