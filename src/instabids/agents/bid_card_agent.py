@@ -60,8 +60,12 @@ class BidCardAgent(LLMAgent):
         # Get required fields
         required_fields = self._get_required_fields(template_type)
         
-        # Validate project data
-        missing_fields = [field for field in required_fields if field not in project]
+        # Validate project data - add comprehensive validation
+        missing_fields = []
+        for field in required_fields:
+            if field not in project:
+                missing_fields.append(field)
+                
         if missing_fields:
             raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
         
@@ -101,8 +105,11 @@ class BidCardAgent(LLMAgent):
             "timestamp": datetime.now().isoformat()
         })
         
+        # Fix: Access response as dictionary if it's a dict, otherwise use .content attribute
+        agent_response = response["content"] if isinstance(response, dict) else response.content
+        
         return {
-            "agent_response": response.content,
+            "agent_response": agent_response,
             "template_id": template_id,
             "template": template
         }
