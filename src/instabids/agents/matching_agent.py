@@ -74,8 +74,11 @@ class MatchingAgent(LLMAgent):
                 "timestamp": datetime.now().isoformat()
             })
         
+        # Fix: Access response as dictionary if it's a dict, otherwise use .content attribute
+        agent_response = response["content"] if isinstance(response, dict) else response.content
+        
         return {
-            "agent_response": response.content,
+            "agent_response": agent_response,
             "matches": matches,
             "match_count": len(matches)
         }
