@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from datetime import datetime
 
-from google.adk import LLMAgent, enable_tracing
-from google.adk.messages import UserMessage
+from instabids_google.adk import LlmAgent as LLMAgent, enable_tracing
+from instabids_google.adk.messages import UserMessage
 from instabids.tools import supabase_tools, template_engine
 from instabids.a2a_comm import send_envelope
 from memory.persistent_memory import PersistentMemory
@@ -29,97 +29,95 @@ class BidCardAgent(LLMAgent):
             name="BidCardAgent",
             tools=[*supabase_tools, template_engine],
             system_prompt=SYSTEM_PROMPT,
-            memory=memory or PersistentMemory(),
+            memory=memory,
         )
-    
-    # ────────────────────────────────────────────────────────────────────────
-    # Public API used by FastAPI / CLI
-    # ────────────────────────────────────────────────────────────────────────
-
-    async def create_bidcard(
+        
+    async def create_template(
         self,
         project_id: str,
-        template_type: str = "standard",
-        version: str = "1.0"
-    ) -> dict[str, Any]:
-        """Main entry. Create a standardized bid card for a project."""
+        template_type: str = "standard"
+    ) -> Dict[str, Any]:
+        """
+        Create a standardized bid template for a project.
         
-        # 1) Get project details from Supabase
-        from instabids.data_access import get_project_details
+        Args:
+            project_id: The ID of the project to create a template for
+            template_type: The type of template to create (standard, commercial, etc.)
+            
+        Returns:
+            Dict containing agent response, template ID, and template data
+        """
+        # Retrieve project from database
+        from instabids.data_access import get_project  # local import to avoid circulars
         
-        project = await get_project_details(project_id)
+        project = await get_project(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
         
-        # 2) Build prompt for ADK
-        prompt = f"Create bid card for project {project_id} ({project['category']}): {project['description']}"
-        user_msg = UserMessage(prompt)
-        response = await self.chat(user_msg)
+        # Get template schema
+        schema = self._get_template_schema(template_type)
         
-        # 3) Generate bid template
-        bid_template = await self._generate_template(
-            project, 
-            template_type,
-            version
+        # Get required fields
+        required_fields = self._get_required_fields(template_type)
+        
+        # Validate project data
+        missing_fields = [field for field in required_fields if field not in project]
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+        
+        # Create user message for agent
+        user_message = UserMessage(
+            content=f"Create {template_type} bid template for project {project_id}"
         )
         
-        # 4) Persist template to Supabase
-        from instabids.data_access import save_bid_template
+        # Process message with agent
+        response = await self.process(user_message)
         
-        template_id = await save_bid_template(
+        # Generate template
+        template = await create_bid_template(
+            project=project,
+            template_type=template_type,
+            schema=schema
+        )
+        
+        # Generate template ID
+        template_id = f"tpl_{project_id}_{template_type}_{int(datetime.now().timestamp())}"
+        
+        # Persist template to database
+        from instabids.data_access import save_template  # local import to avoid circulars
+        
+        await save_template(
+            template_id=template_id,
             project_id=project_id,
             template_type=template_type,
-            version=version,
-            content=bid_template,
-            timestamp=datetime.now().isoformat()
+            template_data=template
         )
         
-        # 5) Emit A2A envelope
-        await send_envelope("bidcard.created", {
+        # Emit A2A envelope for template created
+        send_envelope("bidcard.created", {
             "template_id": template_id,
             "project_id": project_id,
             "template_type": template_type,
-            "version": version,
             "timestamp": datetime.now().isoformat()
         })
         
         return {
             "agent_response": response.content,
             "template_id": template_id,
-            "bid_template": bid_template
+            "template": template
         }
     
     # ────────────────────────────────────────────────────────────────────────
     # Internal helpers
     # ────────────────────────────────────────────────────────────────────────
 
-    async def _generate_template(
-        self,
-        project: Dict[str, Any],
-        template_type: str,
-        version: str
-    ) -> Dict[str, Any]:
-        """Generate standardized bid template from project details."""
-        # 1) Create base template
-        template = create_bid_template(
-            project_id=project["id"],
-            category=project["category"],
-            description=project["description"],
-            urgency=project["urgency"],
-            template_type=template_type,
-            version=version
-        )
+    def _get_template_schema(self, template_type: str) -> Dict[str, Any]:
+        """Get schema definition for a specific template type."""
+        # In a real implementation, this would likely come from a database
+        version = "1.0"  # Schema version
         
-        # 2) Add validation rules
-        validation_rules = await self._get_validation_rules(template_type, version)
-        template["validation_rules"] = validation_rules
-        
-        # 3) Add required fields
-        template["required_fields"] = self._get_required_fields(template_type)
-        
-        return template
-    
-    async def _get_validation_rules(self, template_type: str, version: str) -> Dict[str, Any]:
-        """Get validation rules for template type and version."""
-        # This would typically come from a rules engine or database
+        # For now, return a hardcoded schema
+        # In production, this would come from database or schema registry
         return {
             "schema_version": version,
             "required_sections": ["project_details", "scope_of_work", "pricing"],
