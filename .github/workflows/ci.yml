@@ -19,8 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       supabase:
-        image: supabase/postgres:15
+        image: supabase/postgres:14.1.0.89
         ports: ["5432:5432"]
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v2
