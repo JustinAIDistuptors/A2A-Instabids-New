@@ -83,8 +83,11 @@ class MessagingAgent(LLMAgent):
             "timestamp": datetime.now().isoformat()
         })
         
+        # Fix: Access response as dictionary if it's a dict, otherwise use .content attribute
+        agent_response = response["content"] if isinstance(response, dict) else response.content
+        
         return {
-            "agent_response": response.content,
+            "agent_response": agent_response,
             "message_id": message_id,
             "filtered_content": filtered_content,
             "applied_filters": filtered_content != message_content
