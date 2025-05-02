@@ -5,11 +5,12 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Add environment variables for testing
+    # Use GitHub secrets for Supabase credentials
     env:
-      SUPABASE_URL: "https://example.supabase.co"
-      SUPABASE_KEY: "dummy_key_for_testing"
-      SUPABASE_ANON_KEY: "dummy_anon_key_for_testing"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      # Still use a dummy value for DB_URL since we don't have direct DB access in CI
       SUPABASE_DB_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
     
     steps:
