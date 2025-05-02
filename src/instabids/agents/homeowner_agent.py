@@ -106,7 +106,7 @@ class HomeownerAgent(LlmAgent):
         description: str,
         category: str,
         urgency: str,
-        vision_context: Dict[str, Any] = None,
+        vision_context: Optional[Dict[str, Any]] = None,  # Changed to Optional
     ) -> str:
         """
         Save a project to the database.
@@ -127,7 +127,7 @@ class HomeownerAgent(LlmAgent):
             "description": description,
             "category": category.lower(),
             "urgency": urgency.lower(),
-            "vision_context": vision_context or {},
+            "vision_context": vision_context or {},  # Use empty dict if None
         }
         
         try:
