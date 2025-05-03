@@ -1,10 +1,24 @@
 """FastAPI service exposing HomeownerAgent endpoints."""
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from instabids.agents.factory import get_homeowner_agent
+from instabids.api.routes.messages import router as messages_router
 import uuid, os, shutil, tempfile
 
 app = FastAPI(title="InstaBids API", version="0.1.0")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(messages_router, prefix="/api")
 
 class ProjectIn(BaseModel):
     description: str
