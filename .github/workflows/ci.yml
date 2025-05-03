@@ -11,6 +11,15 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
+      - name: Fix common syntax issues
+        run: python scripts/fix_syntax.py
+      - name: Commit syntax fixes if any
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-fix syntax issues"
+          git push
       - run: ruff check . --exit-zero
       - run: mypy --ignore-missing-imports
       - run: pytest -q
@@ -18,15 +27,15 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     services:
-      supabase:
-        image: supabase/postgres:14.1.0.89
+      postgres:
+        image: postgres:14-alpine
         ports: ["5432:5432"]
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
         options: >-
-          --health-cmd "pg_isready -U postgres -d postgres -h localhost -p 5432"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -43,7 +52,7 @@ jobs:
         run: pnpm install
       - name: Wait for PostgreSQL to be ready
         run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client netcat-openbsd
+          sudo apt-get update && sudo apt-get install -y postgresql-client
           for i in {1..15}; do
             pg_isready -U postgres -d postgres -h localhost -p 5432 && echo "PostgreSQL is ready" && break
             echo "Waiting for PostgreSQL... Attempt $i/15"
