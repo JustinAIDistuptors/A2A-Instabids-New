@@ -10,8 +10,10 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       # Still use a dummy value for DB_URL since we don't have direct DB access in CI
       SUPABASE_DB_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +54,14 @@ jobs:
         env:
           SUPABASE_URL: http://localhost:5432
           SUPABASE_ANON_KEY: dummy
+      
+      # Run WebSocket & RLS tests
+      - name: WebSocket & RLS tests
+        run: pytest -xvs tests/integration/test_rls_and_ws.py
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_ANON_KEY: local
 
   e2e:
     runs-on: ubuntu-latest
