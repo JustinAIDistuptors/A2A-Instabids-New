@@ -7,6 +7,7 @@ import re
 
 from google.adk import LlmAgent, enable_tracing
 from instabids.tools import supabase_tools, openai_vision_tool
+from instabids.tools.stt_tool import speech_to_text
 from memory.persistent_memory import PersistentMemory
 from memory.conversation_state import ConversationState
 from instabids.data import project_repo as repo
@@ -83,6 +84,45 @@ class HomeownerAgent(LlmAgent):
             "need_more": False,
             "project": state.get_slots()
         }
+    
+    async def process_input(
+        self, 
+        user_id: str, 
+        description: Optional[str] = None, 
+        form_payload: Optional[Dict[str, Any]] = None,
+        base64_audio: Optional[str] = None,
+        project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Process user input from various sources (text, audio, form).
+        
+        Args:
+            user_id: User ID for preference lookup/storage
+            description: Optional text description
+            form_payload: Optional form data
+            base64_audio: Optional base64-encoded audio
+            project_id: Optional project ID for context
+            
+        Returns:
+            Response dict with next question or project info
+        """
+        # Process audio input if provided
+        if base64_audio:
+            transcript = await speech_to_text(base64_audio)
+            if transcript:
+                description = transcript
+                logger.info(f"Processed audio input: {description[:50]}...")
+            else:
+                logger.warning("Audio transcription failed or was rejected")
+                return {"error": "Could not understand audio. Please try again or type your request."}
+        
+        # Process form input if provided
+        if form_payload:
+            # TODO: Handle form data
+            pass
+            
+        # Gather project information
+        return await self.gather_project_info(user_id, description)
     
     async def answer_question(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
