@@ -1,0 +1,30 @@
+lockfileVersion: '6.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+dependencies:
+  next:
+    specifier: ^14.0.0
+    version: 14.0.4
+  react:
+    specifier: ^18.2.0
+    version: 18.2.0
+  react-dom:
+    specifier: ^18.2.0
+    version: 18.2.0
+
+devDependencies:
+  autoprefixer:
+    specifier: ^10.4.0
+    version: 10.4.16
+  cypress:
+    specifier: ^13.0.0
+    version: 13.6.1
+  postcss:
+    specifier: ^8.4.0
+    version: 8.4.31
+  tailwindcss:
+    specifier: ^3.3.0
+    version: 3.3.5

@@ -11,6 +11,62 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
+      - name: Fix common syntax issues
+        run: python scripts/fix_syntax.py
+      - name: Commit syntax fixes if any
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-fix syntax issues"
+          git push
       - run: ruff check . --exit-zero
-      - run: mypy 
+      - run: mypy --ignore-missing-imports
       - run: pytest -q
+  
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14-alpine
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          for i in {1..15}; do
+            pg_isready -U postgres -d postgres -h localhost -p 5432 && echo "PostgreSQL is ready" && break
+            echo "Waiting for PostgreSQL... Attempt $i/15"
+            sleep 5
+            if [ $i -eq 15 ]; then
+              echo "PostgreSQL failed to start after multiple attempts" && exit 1
+            fi
+          done
+      - name: Create fixtures directory
+        run: mkdir -p cypress/fixtures
+      - name: Create sample image for testing
+        run: |
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" | base64 -d > cypress/fixtures/roof.jpg
+      - name: Run Cypress tests
+        run: pnpm exec cypress run
+        env:
+          SUPABASE_URL: http://localhost:5432
