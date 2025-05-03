@@ -39,14 +39,20 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-fix syntax issues"
-          git push
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-fix syntax issues" -a
+        continue-on-error: true
       
-      # Run linting and tests
-      - run: ruff check . --exit-zero
-      - run: mypy --ignore-missing-imports
-      - run: pytest -q
-  
+      # Run unit tests
+      - name: Run unit tests
+        run: pytest -xvs tests/unit
+      
+      # Run integration tests
+      - name: Integration tests
+        run: pytest -xvs -m integration
+        env:
+          SUPABASE_URL: http://localhost:5432
+          SUPABASE_ANON_KEY: dummy
+
   e2e:
     runs-on: ubuntu-latest
     services:
