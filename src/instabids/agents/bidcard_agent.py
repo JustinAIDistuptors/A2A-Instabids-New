@@ -16,7 +16,7 @@ def _classify(text: str) -> Tuple[str, float]:
     t = text.lower()
     best, score = "other", 0.0
     for cat, words in TXT_RULES.items():
-        hits = sum(1 for w in words if re.search(rf"\\b{re.escape(w)}\\b", t))
+        hits = sum(1 for w in words if re.search(rf"\b{re.escape(w)}\b", t))
         conf = hits / len(words)
         if conf > score:
             best, score = cat, conf
@@ -32,6 +32,9 @@ def create_bid_card(project: dict, vision: dict) -> Tuple[dict, float]:
         "project_id": project["id"],
         "category": cat,
         "job_type": project.get("job_type", "tbd"),
+        "budget_range": project.get("budget_range"),
+        "timeline": project.get("timeline"),
+        "group_bidding": project.get("group_bidding", False),
         "scope_json": project,
         "photo_meta": vision,
         "ai_confidence": confidence,
