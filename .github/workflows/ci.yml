@@ -5,14 +5,35 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Use GitHub secrets for Supabase credentials
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      # Still use a dummy value for DB_URL since we don't have direct DB access in CI
+      SUPABASE_DB_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+    
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install -e ".[dev]"
+      
+      # Install dependencies explicitly
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+      
+      # Set PYTHONPATH to include the src directory
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/src" >> $GITHUB_ENV
+      
+      # Fix common syntax issues
       - name: Fix common syntax issues
         run: python scripts/fix_syntax.py
+      
+      # Commit syntax fixes if any
       - name: Commit syntax fixes if any
         run: |
           git config --local user.email "action@github.com"
@@ -20,6 +41,8 @@ jobs:
           git add -A
           git diff --quiet && git diff --staged --quiet || git commit -m "Auto-fix syntax issues"
           git push
+      
+      # Run linting and tests
       - run: ruff check . --exit-zero
       - run: mypy --ignore-missing-imports
       - run: pytest -q
