@@ -3,11 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Any, Dict, Set, Optional
 import logging
+import re
 
 from google.adk import LlmAgent, enable_tracing
 from instabids.tools import supabase_tools, openai_vision_tool
 from memory.persistent_memory import PersistentMemory
+from memory.conversation_state import ConversationState
 from instabids.data import project_repo as repo
+from instabids.data.pref_repo import get_pref, upsert_pref
 from instabids.agents.job_classifier import classify
 from instabids.a2a_comm import send_envelope, on_envelope
 from instabids.a2a.events import EVENT_SCHEMAS
@@ -28,105 +31,74 @@ def _next_question(missing: Set[str]) -> str:
         ("location", "Where will the work take place?"),
         ("budget_range", "Rough budget range?"),
         ("timeline", "Preferred start and end dates?"),
-        ("group_bidding", "Are you open to bundling with nearby jobs to lower cost?"),
+        ("group_bidding", "Are you open to bundling with nearby jobs to save costs?"),
     ]
     for slot, q in order:
         if slot in missing:
             return q
-    return ""
+    return "Anything else I should know about your project?"
+
+# Load system prompt from file
+SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "homeowner_agent.md").read_text()
 
 class HomeownerAgent(LlmAgent):
-    def __init__(self, memory: Optional[PersistentMemory] = None):
-        """
-        Initialize the HomeownerAgent.
-        
-        Args:
-            memory: Optional persistent memory system
-        """
-        super().__init__(
-            name="HomeownerAgent",
-            tools=[*supabase_tools, openai_vision_tool],
-            system_prompt=(
-                "Classify homeowner projects, collect required information, "
-                "store them, and emit events."
-            ),
-            memory=memory,
-        )
+    """Agent that helps homeowners create and manage projects."""
 
-    async def process_input(
-        self,
-        user_id: str,
-        description: str | None = None,
-        image_paths: List[Path] | None = None,
-    ) -> Dict[str, Any]:
+    def __init__(self, memory: Optional[PersistentMemory] = None):
+        super().__init__(name="HomeownerAgent", tools=[*supabase_tools, openai_vision_tool], system_prompt=SYSTEM_PROMPT, memory=memory or PersistentMemory())
+        
+    async def gather_project_info(self, user_id: str, description: Optional[str] = None) -> Dict[str, Any]:
         """
-        Process input from a homeowner with slot-filling.
+        Gather project information through slot-filling.
         
         Args:
-            user_id: ID of the user
-            description: Optional project description
-            image_paths: Optional list of image paths
+            user_id: User ID for preference lookup/storage
+            description: Optional initial project description
             
         Returns:
-            Dict containing either next question or completed project info
+            Dict with project info or next question
         """
-        mem = self.memory.get(user_id, default={})
-        collected: Dict[str, Any] = mem.get("slots", {})
-
-        if description:
-            collected["description"] = description
-            # naive extraction demo: title is first 50 chars
-            collected.setdefault("title", description[:50])
-
-        # Vision labels
-        vision_ctx = {}
-        if image_paths:
-            vision_ctx = await self._process_images(image_paths)
-
-        missing = REQUIRED_SLOTS - collected.keys()
-        if missing:
-            q = _next_question(missing)
-            self.memory.put(user_id, {"slots": collected})
-            return {"need_more": True, "question": q}
-
-        # All slots are filled, save the project
-        project_id = self.start_project(
-            description=collected.get("description", ""),
-            images=vision_ctx.get("images", [])
-        )
+        state = ConversationState(self.memory)
+        missing = REQUIRED_SLOTS - set(state.get_slots().keys())
         
-        # Return the completed project info
+        if description:
+            state.set_slot("description", description)
+            state.set_slot("title", description[:80])
+            # naive preference learn: if user mentions budget "$10k" store as default
+            m = re.search(r"\$(\d[\d,]*)", description)
+            if m:
+                upsert_pref(user_id, "default_budget", int(m.group(1).replace(",", "")))
+        
+        if missing:
+            # try filling from saved preferences
+            if "budget_range" in missing:
+                if (default := get_pref(user_id, "default_budget")):
+                    state.set_slot("budget_range", [0, default])
+                    missing.remove("budget_range")
+            if missing:
+                return {"need_more": True, "question": _next_question(missing)}
+        
+        # All slots filled
         return {
             "need_more": False,
-            "project_id": project_id,
-            "slots": collected
+            "project": state.get_slots()
         }
-
-    async def _process_images(self, paths: List[Path]) -> Dict[str, Any]:
+    
+    async def answer_question(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
-        Process images and extract vision context.
+        Answer a homeowner's question about their project.
         
         Args:
-            paths: List of image paths
+            question: The homeowner's question
+            context: Optional context information
             
         Returns:
-            Dictionary of image analysis results
+            Agent's response
         """
-        images = []
-        for p in paths:
-            try:
-                analysis = await openai_vision_tool.analyze_image(image_path=str(p))
-                images.append({
-                    "path": str(p),
-                    "tag": analysis.get("primary_tag", ""),
-                    "analysis": analysis
-                })
-            except Exception as err:
-                logger.error(f"Error processing image {p}: {err}")
-        
-        return {"images": images}
-
-    def start_project(self, description: str, images: List[dict] | None = None) -> str:
+        # TODO: Implement question answering logic
+        return f"I'll help you with: {question}"
+    
+    async def create_project(self, description: str, images: Optional[List[Dict[str, Any]]] = None) -> str:
         """
         Start a new project with the collected information.
         
