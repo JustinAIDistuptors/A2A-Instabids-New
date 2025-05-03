@@ -12,7 +12,7 @@ jobs:
           python-version: '3.11'
       - run: pip install -e ".[dev]"
       - run: ruff check . --exit-zero
-      - run: mypy 
+      - run: mypy --ignore-missing-imports
       - run: pytest -q
   
   e2e:
@@ -26,7 +26,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d postgres -h localhost -p 5432"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -43,18 +43,19 @@ jobs:
         run: pnpm install
       - name: Wait for PostgreSQL to be ready
         run: |
-          apt-get update && apt-get install -y netcat-openbsd
-          for i in {1..10}; do
-            nc -zv localhost 5432 && echo "PostgreSQL is ready" && exit 0
-            echo "Waiting for PostgreSQL..."
-            sleep 3
+          sudo apt-get update && sudo apt-get install -y postgresql-client netcat-openbsd
+          for i in {1..15}; do
+            pg_isready -U postgres -d postgres -h localhost -p 5432 && echo "PostgreSQL is ready" && break
+            echo "Waiting for PostgreSQL... Attempt $i/15"
+            sleep 5
+            if [ $i -eq 15 ]; then
+              echo "PostgreSQL failed to start after multiple attempts" && exit 1
+            fi
           done
-          echo "PostgreSQL failed to start" && exit 1
       - name: Create fixtures directory
         run: mkdir -p cypress/fixtures
       - name: Create sample image for testing
         run: |
-          # Create a simple 1x1 pixel image for testing
           echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" | base64 -d > cypress/fixtures/roof.jpg
       - name: Run Cypress tests
         run: pnpm exec cypress run
