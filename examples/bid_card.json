@@ -1,0 +1,21 @@
+{
+  "id": "bid-123456",
+  "user_id": "user-789012",
+  "category": "repair",
+  "job_type": "roof repair",
+  "budget_range": [1000, 5000],
+  "timeline": "Next month",
+  "location": "123 Main St, Anytown, USA",
+  "group_bidding": true,
+  "images": [
+    {
+      "url": "https://example.com/image1.jpg",
+      "description": "Damaged roof area"
+    },
+    {
+      "url": "https://example.com/image2.jpg",
+      "description": "Water damage inside"
+    }
+  ],
+  "description": "Need to repair leak in roof before rainy season. There's visible damage on the northwest corner and some water damage inside the attic."
+}
