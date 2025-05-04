@@ -6,7 +6,8 @@ import logging
 import re
 
 from google.adk import LlmAgent, enable_tracing
-from instabids.tools import supabase_tools, openai_vision_tool
+from instabids.tools import supabase_tools
+from instabids.tools.vision_tool_plus import analyse as vision_call
 from memory.persistent_memory import PersistentMemory
 from memory.conversation_state import ConversationState
 from instabids.data import project_repo as repo
@@ -29,76 +30,180 @@ def _next_question(missing: Set[str]) -> str:
         ("category", "Is this a repair, renovation, installation, maintenance, or construction project?"),
         ("job_type", "What specific work is needed (e.g., roof repair, lawn mowing)?"),
         ("location", "Where will the work take place?"),
-        ("budget_range", "Rough budget range?"),
-        ("timeline", "Preferred start and end dates?"),
-        ("group_bidding", "Are you open to bundling with nearby jobs to save costs?"),
+        ("budget_range", "What's your budget range for this project?"),
+        ("timeline", "When would you like this work to be done?"),
+        ("group_bidding", "Are you open to group bidding to potentially lower costs?"),
     ]
-    for slot, q in order:
+    for slot, question in order:
         if slot in missing:
-            return q
-    return "Anything else I should know about your project?"
+            return question
+    return ""
 
-# Load system prompt from file
-SYSTEM_PROMPT = (Path(__file__).parent / "prompts" / "homeowner_agent.md").read_text()
+def classify_job(description: str, vision_context: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Classify job type and urgency from description.
+    
+    Args:
+        description: Text description of the job
+        vision_context: Optional vision analysis results
+        
+    Returns:
+        Classification results
+    """
+    vision_tags = []
+    if vision_context:
+        for k, v in vision_context.items():
+            if isinstance(v, dict) and "labels" in v:
+                vision_tags.extend(v["labels"])
+    
+    return classify(description, vision_tags)
+
 
 class HomeownerAgent(LlmAgent):
-    """Agent that helps homeowners create and manage projects."""
+    """Agent for helping homeowners gather project details."""
 
-    def __init__(self, memory: Optional[PersistentMemory] = None):
-        super().__init__(name="HomeownerAgent", tools=[*supabase_tools, openai_vision_tool], system_prompt=SYSTEM_PROMPT, memory=memory or PersistentMemory())
-        
-    async def gather_project_info(self, user_id: str, description: Optional[str] = None) -> Dict[str, Any]:
+    def __init__(self, project_id: str = None):
         """
-        Gather project information through slot-filling.
+        Initialize the HomeownerAgent.
         
         Args:
-            user_id: User ID for preference lookup/storage
-            description: Optional initial project description
+            project_id: Optional project ID to load existing data
+        """
+        super().__init__()
+        self.project_id = project_id
+        self.memory = PersistentMemory(project_id) if project_id else ConversationState()
+        
+        # Load existing project data if available
+        if project_id:
+            try:
+                project = repo.get_project(project_id)
+                if project:
+                    self.memory["project"] = project
+            except Exception as e:
+                logger.error(f"Failed to load project {project_id}: {e}")
+
+    async def process_input(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process user input and return agent response.
+        
+        Args:
+            input_data: Dictionary containing user input
             
         Returns:
-            Dict with project info or next question
+            Agent response
         """
-        state = ConversationState(self.memory)
-        missing = REQUIRED_SLOTS - set(state.get_slots().keys())
+        # 1) Extract input data
+        text = input_data.get("text", "")
+        audio = input_data.get("audio")
+        form_data = input_data.get("form_data", {})
+        user_id = input_data.get("user_id")
         
-        if description:
-            state.set_slot("description", description)
-            state.set_slot("title", description[:80])
-            # naive preference learn: if user mentions budget "$10k" store as default
-            m = re.search(r"\$(\d[\d,]*)", description)
-            if m:
-                upsert_pref(user_id, "default_budget", int(m.group(1).replace(",", "")))
+        # Handle audio input if provided
+        description = None
+        if audio:
+            from instabids.tools.stt_tool import speech_to_text
+            description = await speech_to_text(audio)
+            if not description:
+                return {"error": "Could not transcribe audio clearly. Please try again."}
+        else:
+            description = text
         
-        if missing:
-            # try filling from saved preferences
-            if "budget_range" in missing:
-                if (default := get_pref(user_id, "default_budget")):
-                    state.set_slot("budget_range", [0, default])
-                    missing.remove("budget_range")
-            if missing:
-                return {"need_more": True, "question": _next_question(missing)}
+        # Handle form data if provided
+        if form_data:
+            # Update memory with form data
+            self.memory.update(form_data)
         
-        # All slots filled
+        # 2) Process vision context if images provided
+        vision_context = {}
+        images = input_data.get("images", [])
+        if images:
+            for i, img_data in enumerate(images):
+                try:
+                    # Save the image to a temporary file
+                    temp_dir = Path("/tmp/instabids")
+                    temp_dir.mkdir(exist_ok=True)
+                    p = temp_dir / f"img_{i}.jpg"
+                    
+                    with open(p, "wb") as f:
+                        f.write(img_data)
+                    
+                    # Analyze the image using the enhanced vision tool
+                    result = await vision_call(str(p))
+                    vision_context[f"image_{i}"] = result
+                    
+                except Exception as e:
+                    logger.error(f"Vision API error: {e}")
+        
+        # Create user message for the LLM
+        user_msg = {"text": description or "", "vision_context": vision_context}
+        
+        # 3) Process the user message
+        response = await self.chat(user_msg)
+        
+        # 4) Classify job type & urgency (simple rule-based for v1)
+        classification = classify_job(description or "", vision_context)
+        
+        # 5) Check if we have all required information
+        missing = set(REQUIRED_SLOTS) - set(self.memory.keys())
+        if not missing:
+            # We have all the information, create a project
+            project_id = await self._create_project(self.memory)
+            return {
+                "need_more": False,
+                "project_id": project_id,
+                "message": "Great! I have all the information I need to create your project."
+            }
+        
+        # 6) If we're still missing information, ask for it
+        next_q = _next_question(missing)
+        
         return {
-            "need_more": False,
-            "project": state.get_slots()
+            "need_more": True,
+            "follow_up": next_q,
+            "collected": {k: v for k, v in self.memory.items() if k in REQUIRED_SLOTS}
         }
-    
-    async def answer_question(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
+
+    async def _create_project(self, memory: Dict[str, Any]) -> str:
         """
-        Answer a homeowner's question about their project.
+        Create a project with the collected information.
         
         Args:
-            question: The homeowner's question
-            context: Optional context information
+            memory: Dictionary containing project details
             
         Returns:
-            Agent's response
+            Project ID
         """
-        # TODO: Implement question answering logic
-        return f"I'll help you with: {question}"
-    
-    async def create_project(self, description: str, images: Optional[List[Dict[str, Any]]] = None) -> str:
+        # Extract relevant information
+        images = memory.get("images", [])
+        
+        # Prepare project data
+        project_data = {
+            "homeowner_id": memory.get("user_id", "TODO_user_id"),
+            "title": memory.get("title", memory.get("description", "")[:80]),
+            "description": memory.get("description", ""),
+            "category": memory.get("category", "").lower(),
+            "job_type": memory.get("job_type", ""),
+            "location": memory.get("location", ""),
+            "budget_range": memory.get("budget_range", ""),
+            "timeline": memory.get("timeline", ""),
+            "group_bidding": memory.get("group_bidding", "no").lower() == "yes",
+        }
+        
+        try:
+            with repo._Tx():
+                pid = repo.save_project(project_data)
+                if images:
+                    repo.save_project_photos(pid, images)
+        except Exception as err:
+            logger.error(f"Failed to save project: {err}")
+            raise
+            
+        # --- emit A2A envelope -----------------------------------------
+        payload = {"project_id": pid, "homeowner_id": project_data["homeowner_id"]}
+        send_envelope("project.created", payload)
+        return pid
+
+    async def start_project(self, description: str, images: List[Dict[str, Any]] = None) -> str:
         """
         Start a new project with the collected information.
         
@@ -109,7 +214,14 @@ class HomeownerAgent(LlmAgent):
         Returns:
             Project ID
         """
-        vision_tags: list[str] = [img.get("tag", "") for img in images] if images else []
+        vision_tags: list[str] = []
+        if images:
+            for img in images:
+                if "labels" in img:
+                    vision_tags.extend(img["labels"])
+                elif "tag" in img:
+                    vision_tags.append(img["tag"])
+                    
         cls = classify(description, vision_tags)
         row = {
             "homeowner_id": "TODO_user_id",
