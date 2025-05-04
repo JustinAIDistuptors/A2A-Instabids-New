@@ -11,7 +11,7 @@ from instabids.tools.vision_tool_plus import analyse as vision_call
 from memory.persistent_memory import PersistentMemory
 from memory.conversation_state import ConversationState
 from instabids.data import project_repo as repo
-from instabids.data.pref_repo import get_pref, upsert_pref
+from instabids.data.pref_repo import get_pref, upsert_pref, get_prefs
 from instabids.agents.job_classifier import classify
 from instabids.a2a_comm import send_envelope, on_envelope
 from instabids.a2a.events import EVENT_SCHEMAS
@@ -62,16 +62,30 @@ def classify_job(description: str, vision_context: Dict[str, Any] = None) -> Dic
 class HomeownerAgent(LlmAgent):
     """Agent for helping homeowners gather project details."""
 
-    def __init__(self, project_id: str = None):
+    def __init__(self, project_id: str = None, memory=None):
         """
         Initialize the HomeownerAgent.
         
         Args:
             project_id: Optional project ID to load existing data
+            memory: Optional memory instance to use
         """
         super().__init__()
         self.project_id = project_id
-        self.memory = PersistentMemory(project_id) if project_id else ConversationState()
+        
+        # Initialize memory with user preferences if available
+        if project_id and not memory:
+            try:
+                project = repo.get_project(project_id)
+                if project and "homeowner_id" in project:
+                    # Preload preferences for this user
+                    user_prefs = get_prefs(project["homeowner_id"])
+                    memory = PersistentMemory(project_id, initial_state=user_prefs)
+            except Exception as e:
+                logger.error(f"Failed to load preferences for project {project_id}: {e}")
+        
+        # Fall back to default memory if needed
+        self.memory = memory or PersistentMemory(project_id) if project_id else ConversationState()
         
         # Load existing project data if available
         if project_id:
@@ -145,6 +159,14 @@ class HomeownerAgent(LlmAgent):
         
         # 5) Check if we have all required information
         missing = set(REQUIRED_SLOTS) - set(self.memory.keys())
+        
+        # If we have budget information, sync it to user preferences
+        if "budget_range" in self.memory and user_id:
+            budget_range = self.memory.get("budget_range")
+            if budget_range:
+                # Store budget preference with high confidence (0.9)
+                upsert_pref(user_id, "budget_range", budget_range, confidence=0.9)
+        
         if not missing:
             # We have all the information, create a project
             project_id = await self._create_project(self.memory)
@@ -175,10 +197,11 @@ class HomeownerAgent(LlmAgent):
         """
         # Extract relevant information
         images = memory.get("images", [])
+        user_id = memory.get("user_id", "TODO_user_id")
         
         # Prepare project data
         project_data = {
-            "homeowner_id": memory.get("user_id", "TODO_user_id"),
+            "homeowner_id": user_id,
             "title": memory.get("title", memory.get("description", "")[:80]),
             "description": memory.get("description", ""),
             "category": memory.get("category", "").lower(),
@@ -188,6 +211,13 @@ class HomeownerAgent(LlmAgent):
             "timeline": memory.get("timeline", ""),
             "group_bidding": memory.get("group_bidding", "no").lower() == "yes",
         }
+        
+        # Sync important preferences to the user's profile
+        if user_id != "TODO_user_id":
+            # Store preferences with high confidence (0.9)
+            for key in ["budget_range", "location", "timeline"]:
+                if key in memory and memory[key]:
+                    upsert_pref(user_id, key, memory[key], confidence=0.9)
         
         try:
             with repo._Tx():
