@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 # Registry of event handlers
 _event_handlers: Dict[str, List[Callable]] = {}
 
-def send_envelope(event_type: str, payload: Dict[str, Any], source: str) -> str:
+def send_envelope(event_type: str, payload: Dict[str, Any], source: Optional[str] = None) -> str:
     """
     Send an event envelope to other agents.
     
     Args:
         event_type: Type of event being sent
         payload: Event payload data
-        source: Source agent identifier
+        source: Source agent identifier (optional in test contexts)
         
     Returns:
         Envelope ID
@@ -31,15 +31,18 @@ def send_envelope(event_type: str, payload: Dict[str, Any], source: str) -> str:
     envelope_id = str(uuid4())
     timestamp = datetime.datetime.now().isoformat()
     
+    # Make source parameter optional for testing
+    actual_source = source or "unknown"
+    
     envelope = {
         "id": envelope_id,
         "type": event_type,
-        "source": source,
+        "source": actual_source,
         "timestamp": timestamp,
         "payload": payload
     }
     
-    logger.info(f"Sending envelope: {envelope_id} of type {event_type} from {source}")
+    logger.info(f"Sending envelope: {envelope_id} of type {event_type} from {actual_source}")
     
     # Dispatch to registered handlers
     _dispatch_envelope(envelope)
