@@ -1,7 +1,19 @@
 """Test fixtures for InstaBids tests."""
 import pytest
 from unittest.mock import MagicMock
-from google.adk.memory import Memory
+from typing import Any
+
+# Mock Memory class since Google ADK Memory is not available
+class Memory:
+    """Base Memory interface for ADK compatibility."""
+    
+    def get(self, key: str) -> Any:
+        """Get value from memory."""
+        pass
+    
+    def set(self, key: str, value: Any) -> None:
+        """Set value in memory."""
+        pass
 
 # Mock PersistentMemory for testing
 class MockPersistentMemory(Memory):
