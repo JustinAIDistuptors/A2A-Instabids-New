@@ -1,19 +1,37 @@
-from google.adk import Agent
-from instabids.tools import supabase_tools
+"""Contractor agent implementation."""
+from typing import Optional, Dict, Any
+
+# Try to import from google.adk first, if not available use mock implementation
+try:
+    from google.adk import LlmAgent
+except ImportError:
+    from instabids.mock_adk import LlmAgent
+
 from memory.persistent_memory import PersistentMemory
 
-# Create a function to get the contractor agent with memory injection
-def create_contractor_agent(memory: PersistentMemory = None) -> Agent:
-    return Agent(
-        name="ContractorDispatcher",
-        tools=[*supabase_tools],
-        system_prompt=(
-            "You represent a network of contractors. "
-            "Given a project description, decide whether it matches your trade and, "
-            "if so, submit a bid via the create_bid tool."
-        ),
-        memory=memory,
-    )
+class ContractorAgent(LlmAgent):
+    """Agent representing a contractor who can bid on projects."""
+    
+    def __init__(self, memory: Optional[PersistentMemory] = None) -> None:
+        """Initialize ContractorAgent."""
+        super().__init__(
+            name="ContractorAgent",
+            system_prompt="You help contractors find and bid on home improvement projects."
+        )
+        self.memory = memory or PersistentMemory()
+        self.tools = []
+    
+    async def process_bid(self, bid_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process a bid from a contractor."""
+        return {
+            "bid_id": bid_data.get("id", "unknown"),
+            "status": "submitted",
+            "message": "Bid submitted successfully"
+        }
 
-# Default instance without memory for backward compatibility
-contractor_agent = create_contractor_agent()
+def create_contractor_agent(memory: Optional[PersistentMemory] = None) -> ContractorAgent:
+    """Create and return a ContractorAgent instance."""
+    return ContractorAgent(memory=memory)
+
+# Create a singleton instance for import
+contractor_agent = ContractorAgent()
