@@ -1,52 +1,90 @@
-"""Advanced job‑classification with confidence + optional vision features."""
-from __future__ import annotations
-from typing import Literal, Tuple, Dict
+"""Job classification module for identifying project types."""
+from typing import Dict, Any, Tuple
 import re
 
-JobCategory = Literal[
-    "RENOVATION",      # major remodel / multi‑phase
-    "REPAIR",          # fix something broken
-    "INSTALLATION",    # put in a new unit/fixture
-    "MAINTENANCE",     # recurring upkeep
-    "CONSTRUCTION",    # build new structure
-    "OTHER",           # fallback
-]
-
-_TEXT_RULES: Dict[JobCategory, list[str]] = {
-    "RENOVATION":   ["remodel", "renovation", "kitchen", "bathroom", "gut"],
-    "REPAIR":       ["leak", "broken", "damage", "replace shingle", "hole"],
-    "INSTALLATION": ["install", "mount", "set up", "new unit", "replace faucet"],
-    "MAINTENANCE":  ["mow", "clean", "service", "maintenance", "upkeep"],
-    "CONSTRUCTION": ["add on", "extension", "build deck", "foundation", "concrete"],
+# Classification rules based on keywords
+CLASSIFICATION_RULES = {
+    "repair": ["leak", "burst", "urgent", "fix", "patch", "broken", "damage"],
+    "renovation": ["renovation", "remodel", "kitchen", "bathroom", "upgrade"],
+    "installation": ["install", "replace", "mount", "setup", "assemble"],
+    "maintenance": ["clean", "service", "mowing", "trim", "maintain", "inspect"],
+    "construction": ["build", "addition", "foundation", "construct", "new"],
 }
 
-# rudimentary mapping of simple vision tags → category boosts
-_VISION_HINTS: Dict[str, JobCategory] = {
-    "rubble": "REPAIR",
-    "blueprint": "CONSTRUCTION",
-    "grass": "MAINTENANCE",
-}
+def classify(text: str) -> Tuple[str, float]:
+    """
+    Classify a job description into a primary category with confidence score.
+    
+    Args:
+        text: The job description text
+        
+    Returns:
+        Tuple containing (category, confidence_score)
+    """
+    # Normalize text
+    t = text.lower()
+    
+    # Initialize best match
+    best_category, confidence = "other", 0.0
+    
+    # Check each category's keywords
+    for category, keywords in CLASSIFICATION_RULES.items():
+        hits = sum(1 for word in keywords if re.search(rf"\b{re.escape(word)}\b", t))
+        
+        # Calculate confidence based on keyword matches
+        if hits > 0:
+            score = hits / len(keywords)
+            if score > confidence:
+                best_category, confidence = category, score
+    
+    return best_category, confidence
 
-def _score(text: str, hints: list[str]|None=None) -> Tuple[JobCategory, float]:
-    tl = text.lower()
-    best_cat: JobCategory = "OTHER"
-    best_score = 0.0
-    # text keyword scoring
-    for cat, words in _TEXT_RULES.items():
-        hits = sum(1 for w in words if re.search(rf"\b{re.escape(w)}\b", tl))
-        score = hits / len(words)
-        if score > best_score:
-            best_cat, best_score = cat, score
-    # vision hint boost
-    if hints:
-        for h in hints:
-            if h in _VISION_HINTS:
-                if best_score < 0.4:  # small nudge if weak text match
-                    best_cat, best_score = _VISION_HINTS[h], 0.45
-    return best_cat, best_score
+def get_subcategory(category: str, description: str) -> str:
+    """
+    Extract a subcategory based on the category and description.
+    
+    Args:
+        category: Primary category
+        description: Job description
+        
+    Returns:
+        Subcategory string
+    """
+    # Common subcategories by category
+    subcategories = {
+        "repair": ["roof", "plumbing", "electrical", "appliance", "structural", "fence"],
+        "renovation": ["kitchen", "bathroom", "basement", "living room", "bedroom", "exterior"],
+        "installation": ["appliance", "fixture", "window", "door", "flooring", "lighting"],
+        "maintenance": ["lawn", "garden", "pool", "hvac", "gutter", "driveway"],
+        "construction": ["addition", "shed", "deck", "patio", "garage", "fence"]
+    }
+    
+    # Check for subcategory terms in description
+    if category in subcategories:
+        description_lower = description.lower()
+        for subcategory in subcategories[category]:
+            if subcategory in description_lower:
+                return subcategory
+    
+    # Default subcategory is "general"
+    return f"general {category}"
 
-def classify(text: str, vision_tags: list[str]|None=None) -> dict[str,str|float]:
-    cat, score = _score(text, vision_tags)
-    if score < 0.25:
-        cat = "OTHER"
-    return {"category": cat, "confidence": round(score, 3)}
+def classify_with_metadata(text: str) -> Dict[str, Any]:
+    """
+    Classify a job description and return full metadata.
+    
+    Args:
+        text: Job description
+        
+    Returns:
+        Dictionary with classification metadata
+    """
+    category, confidence = classify(text)
+    subcategory = get_subcategory(category, text)
+    
+    return {
+        "category": category,
+        "subcategory": subcategory,
+        "confidence": confidence,
+        "description": text[:150]  # Truncated description
+    }
