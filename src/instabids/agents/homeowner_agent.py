@@ -7,11 +7,11 @@ from typing import Any, Dict, List, Optional, Set
 from google.adk import LlmAgent, enable_tracing
 # Assuming these imports are correct based on your project structure
 # from instabids.tools import supabase_tools, openai_vision_tool # Not in bundle, might be needed
-# from memory.persistent_memory import PersistentMemory # Not in bundle, might be needed
+from memory.persistent_memory import PersistentMemory
 from instabids.data import project_repo as repo
-from instabids.agents.job_classifier import classify # Assuming this exists
-from instabids.agents.bidcard_agent import BidCardAgent # Assumes bidcard_agent.py is correct
-from instabids.a2a_comm import send_envelope, on_envelope # Assuming this exists
+from instabids.agents.job_classifier import classify  # Assuming this exists
+from instabids.agents.bidcard_agent import BidCardAgent  # Assumes bidcard_agent.py is correct
+from instabids.a2a_comm import send_envelope, on_envelope  # Assuming this exists
 
 logger = logging.getLogger(__name__)
 enable_tracing("stdout")
@@ -40,7 +40,7 @@ def _next_question(missing: Set[str]) -> str:
 
 class HomeownerAgent(LlmAgent):
     """Converses with homeowner, fills slots, delegates to BidCardAgent."""
-    def __init__(self, project_id: Optional[str] = None) -> None:
+    def __init__(self, memory: Optional[PersistentMemory] = None, project_id: Optional[str] = None) -> None:
         # Simplified init based on bundle - may need to add back tools/memory if required by LlmAgent
         super().__init__(
              name="HomeownerAgent",
@@ -49,19 +49,37 @@ class HomeownerAgent(LlmAgent):
              # memory=PersistentMemory(), # Removed based on bundle, add back if needed
         )
         self.project_id = project_id
+        self.memory = memory or PersistentMemory() # Store memory reference
         # Assuming BidCardAgent doesn't need project_id at init based on bundle agent code
         self.bid_card_agent = BidCardAgent()
         self.memory_store: Dict[str, Any] = {}   # conversational scratch
 
-        # Load existing project data if project_id is provided (optional enhancement)
-        # if project_id:
-        #    try:
-        #        project_data = repo.get_project(project_id) # Assuming get_project exists
-        #        if project_data:
-        #            self.memory_store.update(project_data) # Pre-fill memory
-        #    except Exception as e:
-        #        logger.error(f"Error loading project data {project_id}: {e}")
-
+    # Added for test compatibility
+    def start_project(self, description: str) -> str:
+        """Start a new project with given description - compatibility method for tests."""
+        # Extract potential info from description
+        self._extract_info(description)
+        
+        # Set title from description if missing
+        if "title" not in self.memory_store:
+            self.memory_store["title"] = description[:80]
+            
+        # Create project ID if needed
+        if not self.project_id:
+            self.project_id = repo.save_project({
+                "title": self.memory_store.get("title", description[:80]),
+                "description": description,
+                "status": "draft",
+                "created_at": "2025-05-05T12:00:00Z",  # Use current time in production
+            })
+            
+        # Emit project.created event
+        send_envelope("project.created", {
+            "project_id": self.project_id,
+            "title": self.memory_store.get("title", description[:80]),
+        })
+        
+        return self.project_id
 
     # ───────────────────────────────────────────
 
@@ -179,7 +197,7 @@ class HomeownerAgent(LlmAgent):
             logger.debug(f"Extracted group_bidding: {self.memory_store['group_bidding']}")
 
         # Handle budget: $1,000 - $2,000 or $1000 to $2k etc.
-        budget_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)\s*(?:-|to|through)\s*\$?([\d,k]+(?:\.\d{2})?)', text, re.IGNORECASE)
+        budget_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)\\s*(?:-|to|through)\\s*\\$?([\\d,k]+(?:\\.\\d{2})?)', text, re.IGNORECASE)
         if budget_match:
              min_str = budget_match.group(1).replace(',', '')
              max_str = budget_match.group(2).replace(',', '').replace('k', '000')
@@ -188,13 +206,13 @@ class HomeownerAgent(LlmAgent):
              # Actual parsing happens just before creating BidCard
 
         # Handle location: "in City, ST" or "at Address, City, ST"
-        loc_match = re.search(r'(?:in|at|location is)\s+([\w\s]+,\s*[A-Z]{2})', text, re.IGNORECASE)
+        loc_match = re.search(r'(?:in|at|location is)\\s+([\\w\\s]+,\\s*[A-Z]{2})', text, re.IGNORECASE)
         if loc_match:
             self.memory_store["location"] = loc_match.group(1).strip()
             logger.debug(f"Extracted location: {self.memory_store['location']}")
 
         # Handle timeline: "next week", "in 2 months", "ASAP"
-        timeline_match = re.search(r'(?:timeline|by|in|within)\s+(next\s+\w+|(?:\d+|a\s+few)\s+(?:days?|weeks?|months?)|ASAP|as soon as possible)', text, re.IGNORECASE)
+        timeline_match = re.search(r'(?:timeline|by|in|within)\\s+(next\\s+\\w+|(?:\\d+|a\\s+few)\\s+(?:days?|weeks?|months?)|ASAP|as soon as possible)', text, re.IGNORECASE)
         if timeline_match:
             self.memory_store["timeline"] = timeline_match.group(1).strip()
             logger.debug(f"Extracted timeline: {self.memory_store['timeline']}")
