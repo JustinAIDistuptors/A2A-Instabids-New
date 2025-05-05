@@ -4,11 +4,19 @@ import re
 
 # Classification rules based on keywords
 CLASSIFICATION_RULES = {
+    "bathroom": ["bathroom", "toilet", "shower", "sink", "bathtub", "vanity"],
+    "kitchen": ["kitchen", "cabinets", "countertop", "appliance", "sink", "stove"],
     "repair": ["leak", "burst", "urgent", "fix", "patch", "broken", "damage"],
-    "renovation": ["renovation", "remodel", "kitchen", "bathroom", "upgrade"],
+    "renovation": ["renovation", "remodel", "upgrade", "modernize"],
     "installation": ["install", "replace", "mount", "setup", "assemble"],
     "maintenance": ["clean", "service", "mowing", "trim", "maintain", "inspect"],
     "construction": ["build", "addition", "foundation", "construct", "new"],
+    "electrical": ["electrical", "wiring", "outlet", "circuit", "breaker", "panel"],
+    "plumbing": ["plumbing", "pipe", "drain", "water", "faucet", "toilet"],
+    "roofing": ["roof", "shingle", "gutter", "flashing", "leak"],
+    "landscaping": ["landscaping", "yard", "garden", "lawn", "plant", "tree"],
+    "flooring": ["floor", "tile", "hardwood", "carpet", "vinyl", "laminate"],
+    "painting": ["paint", "stain", "wallpaper", "caulk", "primer"],
 }
 
 def classify(text: str) -> Tuple[str, float]:
@@ -22,6 +30,9 @@ def classify(text: str) -> Tuple[str, float]:
         Tuple containing (category, confidence_score)
     """
     # Normalize text
+    if text is None:
+        return "other", 0.0
+        
     t = text.lower()
     
     # Initialize best match
@@ -29,7 +40,7 @@ def classify(text: str) -> Tuple[str, float]:
     
     # Check each category's keywords
     for category, keywords in CLASSIFICATION_RULES.items():
-        hits = sum(1 for word in keywords if re.search(rf"\b{re.escape(word)}\b", t))
+        hits = sum(1 for word in keywords if re.search(r'\b' + re.escape(word) + r'\b', t))
         
         # Calculate confidence based on keyword matches
         if hits > 0:
@@ -59,8 +70,13 @@ def get_subcategory(category: str, description: str) -> str:
         "construction": ["addition", "shed", "deck", "patio", "garage", "fence"]
     }
     
+    # Return category directly if it's a specialized one
+    if category in ["bathroom", "kitchen", "electrical", "plumbing", "roofing", 
+                    "landscaping", "flooring", "painting"]:
+        return category
+    
     # Check for subcategory terms in description
-    if category in subcategories:
+    if category in subcategories and description:
         description_lower = description.lower()
         for subcategory in subcategories[category]:
             if subcategory in description_lower:
@@ -86,5 +102,5 @@ def classify_with_metadata(text: str) -> Dict[str, Any]:
         "category": category,
         "subcategory": subcategory,
         "confidence": confidence,
-        "description": text[:150]  # Truncated description
+        "description": text[:150] if text else ""  # Truncated description
     }
