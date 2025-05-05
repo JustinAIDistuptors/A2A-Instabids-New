@@ -117,3 +117,11 @@ def list_project_photos(pid: str) -> List[Dict[str, Any]]:
         
     # Production mode
     return _retry(_sb.table("project_photos").select("*").eq("project_id", pid)).execute().data
+
+# Export repo functions as a dictionary for test_supabase_integration.py
+repo = {
+    'save_project': save_project,
+    'save_project_photos': save_project_photos,
+    'get_project': get_project,
+    'list_project_photos': list_project_photos,
+}
