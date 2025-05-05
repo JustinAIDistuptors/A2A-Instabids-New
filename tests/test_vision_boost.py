@@ -7,9 +7,9 @@ from pathlib import Path
 
 # Modules to test
 from instabids.tools import gemini_vision_tool
-from instabids.data import photo_repo # Added import
-# from instabids.agents.homeowner_agent import HomeownerAgent # Will add later
-from instabids_google.adk.memory.conversation_state import ConversationState # Added import
+from instabids.data import photo_repo
+from instabids.agents.homeowner_agent import HomeownerAgent # Added import
+from instabids_google.adk.memory.conversation_state import ConversationState
 
 
 # --- Fixtures ---
@@ -70,7 +70,21 @@ def mock_photo_repo_deps(mock_supabase_client):
             "get_client": mock_getter,
             "client": mock_supabase_client
         }
-# --- END photo_repo Fixtures ---
+
+# --- Fixture for HomeownerAgent --- (NEW)
+@pytest.fixture
+def homeowner_agent_instance():
+    """Fixture for a HomeownerAgent instance with mocked memory."""
+    mock_memory = MagicMock()
+    mock_memory.load_state = MagicMock()
+    mock_memory.save_state = MagicMock()
+    # Patch base class init if needed, adjust depending on LlmAgent structure
+    with patch('google.adk.LlmAgent.__init__', return_value=None):
+         agent = HomeownerAgent(memory=mock_memory)
+    # Initialize agent state (adjust based on actual ConversationState needs)
+    agent.state = ConversationState(user_id="test_user", project_id=str(uuid.uuid4()))
+    return agent
+# --- END HomeownerAgent Fixture ---
 
 
 # --- Unit Tests: gemini_vision_tool ---
@@ -111,7 +125,7 @@ def test_gemini_analyse_api_error(mock_google_generativeai, mock_gemini_model, t
     assert result is None
 
 
-# --- Unit Tests: photo_repo --- (NEW Tests)
+# --- Unit Tests: photo_repo ---
 
 def test_save_photo_meta_success(mock_photo_repo_deps):
     """Test successfully saving photo metadata."""
@@ -178,4 +192,45 @@ def test_save_photo_meta_db_error(mock_photo_repo_deps):
     mock_execute.assert_called_once()
 
 
-# --- Tests for HomeownerAgent to be added later ---
+# --- Integration Tests: HomeownerAgent Image Processing ---
+
+@patch('instabids.agents.homeowner_agent.gemini_vision_tool.analyse')
+@patch('instabids.agents.homeowner_agent.save_photo_meta')
+def test_homeowner_agent_vision_to_slots(mock_save_photo_meta, mock_analyse, homeowner_agent_instance, temp_image_file):
+    """Test the _vision_to_slots method of HomeownerAgent."""
+    agent = homeowner_agent_instance
+    project_id = agent.state.project_id
+    image_path_str = str(temp_image_file)
+    image_inputs = [{"path": image_path_str}]
+    mock_meta = {"labels": ["int_tag"], "embedding": [0.9]*768, "confidence": 0.75}
+    mock_analyse.return_value = mock_meta
+
+    extracted_tags = agent._vision_to_slots(image_inputs, project_id)
+
+    assert extracted_tags == ["int_tag"]
+    mock_analyse.assert_called_once_with(image_path_str)
+    expected_storage_path = temp_image_file.name # Assuming storage path is just the filename
+    mock_save_photo_meta.assert_called_once_with(project_id, expected_storage_path, mock_meta)
+
+@patch('instabids.agents.homeowner_agent.gemini_vision_tool.analyse')
+@patch('instabids.agents.homeowner_agent.save_photo_meta')
+def test_homeowner_agent_vision_to_slots_multiple_images(mock_save_photo_meta, mock_analyse, homeowner_agent_instance, tmp_path):
+    """Test _vision_to_slots with multiple images."""
+    agent = homeowner_agent_instance
+    project_id = agent.state.project_id
+    img1 = tmp_path / "img1.png"; img1.touch()
+    img2 = tmp_path / "img2.jpeg"; img2.touch()
+    image_inputs = [{"path": str(img1)}, {"path": str(img2)}]
+    mock_meta1 = {"labels": ["tag1", "tag2"], "embedding": [0.1]*768, "confidence": 0.8}
+    mock_meta2 = {"labels": ["tag3"], "embedding": [0.2]*768, "confidence": 0.9}
+    mock_analyse.side_effect = [mock_meta1, mock_meta2]
+
+    extracted_tags = agent._vision_to_slots(image_inputs, project_id)
+
+    assert extracted_tags == ["tag1", "tag2", "tag3"] # Check combined unique tags
+    assert mock_analyse.call_count == 2
+    assert mock_save_photo_meta.call_count == 2
+    mock_save_photo_meta.assert_any_call(project_id, img1.name, mock_meta1)
+    mock_save_photo_meta.assert_any_call(project_id, img2.name, mock_meta2)
+
+# --- Remaining HomeownerAgent tests to be added later ---
