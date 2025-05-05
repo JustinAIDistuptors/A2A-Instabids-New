@@ -202,7 +202,8 @@ class HomeownerAgent(LlmAgent):
             logger.debug(f"Extracted group_bidding: {self.memory_store['group_bidding']}")
 
         # Handle budget: $1,000 - $2,000 or $1000 to $2k etc.
-        budget_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)\\s*(?:-|to|through)\\s*\\$?([\\d,k]+(?:\\.\\d{2})?)', text, re.IGNORECASE)
+        # Fix the regex pattern that was causing errors
+        budget_match = re.search(r'\$?([\d,]+(?:\.\d{2})?)\s*(?:-|to|through)\s*\$?([\d,k]+(?:\.\d{2})?)', text, re.IGNORECASE)
         if budget_match:
              min_str = budget_match.group(1).replace(',', '')
              max_str = budget_match.group(2).replace(',', '').replace('k', '000')
@@ -211,13 +212,15 @@ class HomeownerAgent(LlmAgent):
              # Actual parsing happens just before creating BidCard
 
         # Handle location: "in City, ST" or "at Address, City, ST"
-        loc_match = re.search(r'(?:in|at|location is)\\s+([\\w\\s]+,\\s*[A-Z]{2})', text, re.IGNORECASE)
+        # Fix the regex pattern
+        loc_match = re.search(r'(?:in|at|location is)\s+([\w\s]+,\s*[A-Z]{2})', text, re.IGNORECASE)
         if loc_match:
             self.memory_store["location"] = loc_match.group(1).strip()
             logger.debug(f"Extracted location: {self.memory_store['location']}")
 
         # Handle timeline: "next week", "in 2 months", "ASAP"
-        timeline_match = re.search(r'(?:timeline|by|in|within)\\s+(next\\s+\\w+|(?:\\d+|a\\s+few)\\s+(?:days?|weeks?|months?)|ASAP|as soon as possible)', text, re.IGNORECASE)
+        # Fix the regex pattern
+        timeline_match = re.search(r'(?:timeline|by|in|within)\s+(next\s+\w+|(?:\d+|a\s+few)\s+(?:days?|weeks?|months?)|ASAP|as soon as possible)', text, re.IGNORECASE)
         if timeline_match:
             self.memory_store["timeline"] = timeline_match.group(1).strip()
             logger.debug(f"Extracted timeline: {self.memory_store['timeline']}")
