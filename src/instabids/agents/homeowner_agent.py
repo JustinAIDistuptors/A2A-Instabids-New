@@ -1,6 +1,6 @@
 """HomeownerAgent – conversational slot-filling → bid-card creation."""
 from __future__ import annotations
-import logging, re, uuid
+import logging, re, uuid, sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -16,7 +16,8 @@ from memory.persistent_memory import PersistentMemory
 from instabids.data import project_repo as repo
 from instabids.agents.job_classifier import classify  # Assuming this exists
 from instabids.agents.bidcard_agent import BidCardAgent  # Assumes bidcard_agent.py is correct
-from instabids.a2a_comm import send_envelope, on_envelope  # Assuming this exists
+import instabids.a2a_comm  # Import module instead of individual functions
+from instabids.a2a_comm import on_envelope  # Import decorator directly
 
 logger = logging.getLogger(__name__)
 enable_tracing("stdout")
@@ -78,8 +79,13 @@ class HomeownerAgent(LlmAgent):
                 "created_at": "2025-05-05T12:00:00Z",  # Use current time in production
             })
             
-        # Emit project.created event
-        send_envelope("project.created", {
+        # Emit project.created event - use direct call instead of imported function
+        # Add debugging info
+        print(f"Sending envelope with project_id: {self.project_id}")
+        sys.stdout.flush()  # Force output to show up
+        
+        # Call directly from the module to make mocking easier
+        instabids.a2a_comm.send_envelope("project.created", {
             "project_id": self.project_id,
             "title": self.memory_store.get("title", description[:80]),
         })
@@ -173,7 +179,7 @@ class HomeownerAgent(LlmAgent):
             bid_id = await self.bid_card_agent.generate(bid_card_obj)
 
             logger.info(f"Bid card created with ID: {bid_id}")
-            send_envelope("bidcard.created", {
+            instabids.a2a_comm.send_envelope("bidcard.created", {
                 "bid_card_id": bid_id,
                 "project_id":  self.project_id,
                 "homeowner_id": user_id,
