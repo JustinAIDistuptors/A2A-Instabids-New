@@ -4,7 +4,12 @@ import logging, re, uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from google.adk import LlmAgent, enable_tracing
+# Try to import from google.adk first, if not available use mock implementation
+try:
+    from google.adk import LlmAgent, enable_tracing
+except ImportError:
+    from instabids.mock_adk import LlmAgent, enable_tracing
+
 # Assuming these imports are correct based on your project structure
 # from instabids.tools import supabase_tools, openai_vision_tool # Not in bundle, might be needed
 from memory.persistent_memory import PersistentMemory
