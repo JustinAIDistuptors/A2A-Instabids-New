@@ -71,7 +71,7 @@ def mock_photo_repo_deps(mock_supabase_client):
             "client": mock_supabase_client
         }
 
-# --- Fixture for HomeownerAgent --- (NEW)
+# --- Fixture for HomeownerAgent ---
 @pytest.fixture
 def homeowner_agent_instance():
     """Fixture for a HomeownerAgent instance with mocked memory."""
@@ -233,4 +233,37 @@ def test_homeowner_agent_vision_to_slots_multiple_images(mock_save_photo_meta, m
     mock_save_photo_meta.assert_any_call(project_id, img1.name, mock_meta1)
     mock_save_photo_meta.assert_any_call(project_id, img2.name, mock_meta2)
 
-# --- Remaining HomeownerAgent tests to be added later ---
+@patch('instabids.agents.homeowner_agent.gemini_vision_tool.analyse')
+@patch('instabids.agents.homeowner_agent.save_photo_meta')
+def test_homeowner_agent_vision_to_slots_analysis_failure(mock_save_photo_meta, mock_analyse, homeowner_agent_instance, temp_image_file):
+    """Test _vision_to_slots when vision analysis returns None."""
+    agent = homeowner_agent_instance
+    project_id = agent.state.project_id
+    image_path_str = str(temp_image_file)
+    image_inputs = [{"path": image_path_str}]
+    mock_analyse.return_value = None # Simulate analysis failure
+
+    extracted_tags = agent._vision_to_slots(image_inputs, project_id)
+
+    assert extracted_tags == [] # Expect empty list if analysis fails
+    mock_analyse.assert_called_once_with(image_path_str)
+    mock_save_photo_meta.assert_not_called() # Save should not be called if no meta
+
+@patch('instabids.agents.homeowner_agent.gemini_vision_tool.analyse')
+@patch('instabids.agents.homeowner_agent.save_photo_meta')
+def test_homeowner_agent_vision_to_slots_db_save_failure(mock_save_photo_meta, mock_analyse, homeowner_agent_instance, temp_image_file):
+    """Test _vision_to_slots when DB save fails (should still return tags)."""
+    agent = homeowner_agent_instance
+    project_id = agent.state.project_id
+    image_path_str = str(temp_image_file)
+    image_inputs = [{"path": image_path_str}]
+    mock_meta = {"labels": ["db_fail"], "embedding": [0.3]*768, "confidence": 0.6}
+    mock_analyse.return_value = mock_meta
+    mock_save_photo_meta.side_effect = Exception("DB write error") # Simulate DB error
+
+    # The method should handle the exception internally and log it, but still return tags
+    extracted_tags = agent._vision_to_slots(image_inputs, project_id)
+
+    assert extracted_tags == ["db_fail"] # Tags should be extracted even if DB save fails
+    mock_analyse.assert_called_once_with(image_path_str)
+    mock_save_photo_meta.assert_called_once_with(project_id, temp_image_file.name, mock_meta)
