@@ -5,7 +5,12 @@ import re, uuid, logging
 from typing import Tuple, Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
-from google.adk import LlmAgent
+# Try to import from google.adk first, if not available use mock implementation
+try:
+    from google.adk import LlmAgent
+except ImportError:
+    from instabids.mock_adk import LlmAgent
+
 from instabids.data import bidcard_repo
 
 logger = logging.getLogger(__name__)
