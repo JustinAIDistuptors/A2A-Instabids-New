@@ -17,7 +17,7 @@ def get_homeowner_agent(memory: Optional[PersistentMemory] = None) -> HomeownerA
     """Return singleton HomeownerAgent."""
     global _homeowner_instance
     if _homeowner_instance is None:
-        _homeowner_instance = HomeownerAgent(memory or _mem_store)
+        _homeowner_instance = HomeownerAgent(memory=memory or _mem_store)
     return _homeowner_instance
 
 
