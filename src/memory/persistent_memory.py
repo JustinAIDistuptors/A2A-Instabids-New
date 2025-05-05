@@ -19,18 +19,35 @@ class PersistentMemory(Memory):
     Stores and retrieves memory from Supabase database.
     """
 
-    def __init__(self, db: Client, user_id: str):
-        """Initialize with database client and user ID."""
+    def __init__(self, db: Optional[Client] = None, user_id: str = "test_user"):
+        """Initialize with database client and user ID.
+        
+        In test mode (db=None), acts as in-memory implementation.
+        """
         super().__init__()  # Initialize base Memory class
         self.db = db
         self.user_id = user_id
         self._memory_cache: Dict[str, Any] = {}  # In-memory cache
-        self._is_loaded = False
+        self._is_loaded = db is None  # If no DB, consider already loaded (test mode)
         self._is_dirty = False  # Track if memory needs to be saved
+        
+        # Initialize empty structure in test mode
+        if db is None:
+            self._memory_cache = {
+                "interactions": [],
+                "context": {},
+                "learned_preferences": {},
+                "creation_date": datetime.datetime.utcnow().isoformat(),
+            }
 
     async def load(self) -> bool:
         """Load user's memory from database."""
         if self._is_loaded:
+            return True
+            
+        # In test mode (no db), just return successfully
+        if self.db is None:
+            self._is_loaded = True
             return True
 
         try:
@@ -73,6 +90,11 @@ class PersistentMemory(Memory):
     async def save(self) -> bool:
         """Save current memory state to database."""
         if not self._is_dirty:
+            return True
+            
+        # In test mode (no db), just return successfully
+        if self.db is None:
+            self._is_dirty = False
             return True
 
         try:
@@ -128,6 +150,10 @@ class PersistentMemory(Memory):
             self._memory_cache["interactions"].append(interaction)
             self._is_dirty = True
 
+            # In test mode, skip DB operations
+            if self.db is None:
+                return True
+                
             # Also store in detailed interaction history table
             await self.db.table("user_memory_interactions").insert(
                 {
@@ -151,6 +177,10 @@ class PersistentMemory(Memory):
 
     async def _extract_preferences(self, interaction_type: str, data: Dict[str, Any]):
         """Extract and update user preferences from interaction data."""
+        # In test mode, skip preference extraction
+        if self.db is None:
+            return
+            
         try:
             # Example preference extraction logic - customize based on interaction types
             if interaction_type == "project_creation":
@@ -185,6 +215,18 @@ class PersistentMemory(Memory):
 
     async def _update_preference(self, preference_key: str, value: Any, source: str):
         """Update a user preference in the database and memory cache."""
+        # In test mode, skip DB operations but update memory
+        if self.db is None:
+            if "learned_preferences" not in self._memory_cache:
+                self._memory_cache["learned_preferences"] = {}
+                
+            self._memory_cache["learned_preferences"][preference_key] = {
+                "value": value,
+                "count": 1,
+            }
+            self._is_dirty = True
+            return
+            
         try:
             # Update in-memory representation
             if "learned_preferences" not in self._memory_cache:
