@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from instabids.agents.factory import get_homeowner_agent
 from instabids.data_access import create_project, get_project_status
 from instabids.webhooks import verify_signature, push_to_ui
+from instabids.api import bidcards # ADDED IMPORT
 import uuid, asyncio
 
 app = FastAPI(title="Instabids A2A Service")
@@ -13,6 +14,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(bidcards.router) # ADDED ROUTER
 
 
 # ------- A2A endpoints ------- #
