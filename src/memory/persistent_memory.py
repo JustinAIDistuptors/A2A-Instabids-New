@@ -7,8 +7,29 @@ from typing import Dict, List, Any, Optional
 import json
 import datetime
 
-from google.adk.memory import Memory
-from supabase import Client
+# Try to import Memory from google.adk, fall back to local implementation if needed
+try:
+    from google.adk.memory import Memory
+except ImportError:
+    # Define basic Memory interface for testing
+    class Memory:
+        """Base Memory interface for ADK compatibility."""
+        
+        def get(self, key: str) -> Any:
+            """Get value from memory."""
+            pass
+        
+        def set(self, key: str, value: Any) -> None:
+            """Set value in memory."""
+            pass
+
+# Conditional import for Supabase Client
+try:
+    from supabase import Client
+except ImportError:
+    # Create a dummy Client type for type checking
+    class Client:
+        pass
 
 logger = logging.getLogger(__name__)
 
