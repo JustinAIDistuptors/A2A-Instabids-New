@@ -53,4 +53,14 @@ jobs:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
-        poetry run pytest tests/integration/test_homeowner_with_real_llm.py tests/integration/test_contractor_with_real_llm.py tests/integration/test_matching_with_real_llm.py -v
+        poetry run pytest tests/integration/test_homeowner_with_real_llm.py tests/integration/test_contractor_with_real_llm.py tests/integration/test_matching_with_real_llm.py tests/integration/test_multi_agent_interaction.py -v
+        
+    - name: Run multi-agent test only (when enabled)
+      if: ${{ contains(github.event.head_commit.message, '[run-multi-agent-test]') }}
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        poetry run pytest tests/integration/test_multi_agent_interaction.py -v
