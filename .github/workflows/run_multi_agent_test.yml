@@ -1,0 +1,51 @@
+name: Run Multi-Agent Integration Test
+
+# This workflow is manually triggered and only runs the multi-agent integration test
+on:
+  workflow_dispatch:  # Allow manual triggering
+  
+jobs:
+  run-multi-agent-test:
+    name: Run Multi-Agent Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        ref: test-infrastructure-clean
+    
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        
+    - name: Install Poetry
+      run: |
+        curl -sSL https://install.python-poetry.org | python3 -
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        
+    - name: Install dependencies
+      run: |
+        poetry install
+        poetry run pip install pytest-asyncio
+        
+    - name: Run multi-agent integration test
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        poetry run pytest tests/integration/test_multi_agent_interaction.py -v
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: |
+          pytest-report.xml
+          .coverage
+          coverage.xml
+        retention-days: 30
