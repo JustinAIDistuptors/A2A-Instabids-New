@@ -1,49 +1,28 @@
-from fastapi import FastAPI, WebSocket, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from instabids.agents.factory import get_homeowner_agent
-from instabids.data_access import create_project, get_project_status
-from instabids.webhooks import verify_signature, push_to_ui
-from instabids.api import bidcards # ADDED IMPORT
-import uuid, asyncio
-
-app = FastAPI(title="Instabids A2A Service")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(bidcards.router) # ADDED ROUTER
-
-
-# ------- A2A endpoints ------- #
-@app.post("/a2a/v1/tasks", status_code=202)
-async def create_task(payload: dict, token: str = Depends(verify_signature)):
-    task_id = uuid.uuid4().hex
-    asyncio.create_task(run_homeowner_flow(task_id, payload))
-    return {"task_id": task_id, "status": "IN_PROGRESS"}
-
-
-@app.get("/a2a/v1/tasks/{task_id}")
-async def get_task(task_id: str, token: str = Depends(verify_signature)):
-    status = await get_project_status(task_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="task not found")
-    return status
-
-
-# ------ WebSocket stream for UI ------ #
-@app.websocket("/ws/bids/{task_id}")
-async def ws_bids(websocket: WebSocket, task_id: str):
-    await websocket.accept()
-    async for event in push_to_ui.subscribe(task_id):
-        await websocket.send_json(event)
-
-
-# ------ Internal async workflow ------ #
-async def run_homeowner_flow(task_id: str, payload: dict):
-    agent = get_homeowner_agent()
-    await create_project(task_id, payload)
-    await agent.run_async(task_id=task_id, project=payload)
+ZnJvbSBmYXN0YXBpIGltcG9ydCBGYXN0QVBJLCBXZWJTb2NrZXQsIERlcGVuZHMsIEhUVFBFeGNlcHRpb24sIHN0YXR1cwp
+ZnJvbSBmYXN0YXBpLm1pZGRsZXdhcmUuY29ycyBpbXBvcnQgQ09SU01pZGRsZXdhcmUKZnJvbSBpbnN0YWJpZHMu
+YWdlbnRzLmZhY3RvcnkgaW1wb3J0IGdldF9ob21lb3duZXJfYWdlbnQKZnJvbSBpbnN0YWJpZHMuZGF0YV9hY2Nl
+c3MgaW1wb3J0IGNyZWF0ZV9wcm9qZWN0LCBnZXRfcHJvamVjdF9zdGF0dXMKZnJvbSBpbnN0YWJpZHMud2ViaG9v
+a3MgaW1wb3J0IHZlcmlmeV9zaWduYXR1cmUsIHB1c2hfdG9fdWkKZnJvbSBpbnN0YWJpZHMuYXBpIGltcG9ydCBi
+aWRjYXJkcyAjIEFEREVEIElNUE9SVApmcm9tIGluc3RhYmlkcy5hcGkgaW1wb3J0IG1lc3NhZ2luZyAjIDw8PCBB
+RERFRCBNRVNTQUdJTkcgSU1QT1JUCmltcG9ydCB1dWlkLCBhc3luY2lvCgphcHAgPSBGYXN0QVBJKHRpdGxlPSJJ
+bnN0YWJpZHMgQTJBIFNlcnZpY2UiKQoKYXBwLmFkZF9taWRkbGV3YXJlKAogICAgQ09SU01pZGRsZXdhcmUsCiAg
+ICBhbGxvd19vcmlnaW5zPVsiKiJdLAogICAgYWxsb3dfbWV0aG9kcz1bIioiXSwKICAgIGFsbG93X2hlYWRlcnM9
+WyIqIl0sCikKCmFwcC5pbmNsdWRlX3JvdXRlcihiaWRjYXJkcy5yb3V0ZXIpICMgQURERUQgUk9VVEVSCmFwcC5p
+bmNsdWRlX3JvdXRlcihtZXNzYWdpbmcucm91dGVyKSAjIDw8PCBBRERFRCBNRVNTQUdJTkcgUk9VVEVSCgoKIyAt
+LS0tLS0tIEEyQSBlbmRwb2ludHMgLS0tLS0tLS0gIwpAcHAucG9zdCgiL2EyYS92MS90YXNrcyIsIHN0YXR1c19j
+b2RlPTIwMikKYXN5bmMgZGVmIGNyZWF0ZV90YXNrKHBheWxvYWQ6IGRpY3QsIHRva2VuOiBzdHIgPSBEZXBlbmRz
+KHZlcmlmeV9zaWduYXR1cmUpKToKICAgIHRhc2tfaWQgPSB1dWlkLnV1aWQ0KCkuaGV4CiAgICBhc3luY2lvLmNy
+ZWF0ZV90YXNrKHJ1bl9ob21lb3duZXJfZmxvdyh0YXNrX2lkLCBwYXlsb2FkKSkKICAgIHJldHVybiB7InRhc2tf
+aWQiOiB0YXNrX2lkLCAic3RhdHVzIjogIklOX1BST0dSRVNTIn0KCgpAcHAuZ2V0KCIvYTJhL3YxL3Rhc2tzL3t0
+YXNrX2lkfSIpCmFzeW5jIGRlZiBnZXRfdGFzayh0YXNrX2lkOiBzdHIsIHRva2VuOiBzdHIgPSBEZXBlbmRzKHZl
+cmlmeV9zaWduYXR1cmUpKToKICAgIHN0YXR1cyA9IGF3YWl0IGdldF9wcm9qZWN0X3N0YXR1cyh0YXNrX2lkKQog
+ICAgaWYgbm90IHN0YXR1czoKICAgICAgICByYWlzZSBIVFRQRXhjZXB0aW9uKHN0YXR1c19jb2RlPTQwNCwgZGV0
+YWlsPSJ0YXNrIG5vdCBmb3VuZCIpCiAgICByZXR1cm4gc3RhdHVzCgoKIyAtLS0tLS0gV2ViU29ja2V0IHN0cmVh
+bSBmb3IgVUkgLS0tLS0tICNAcHAud2Vic29ja2V0KCIvd3MvYmlkcy97dGFza19pZH0iKQphc3luYyBkZWYgd3Nf
+Ymlkcyh3ZWJzb2NrZXQ6IFdlYlNvY2tldCwgdGFza19pZDogc3RyKToKICAgIGF3YWl0IHdlYnNvY2tldC5hY2Nl
+cHQoKQogICAgYXN5bmMgZm9yIGV2ZW50IGluIHB1c2hfdG9fdWUuc3Vic2NyaWJlKHRhc2tfaWQpOgogICAgICAg
+IGF3YWl0IHdlYnNvY2tldC5zZW5kX2pzb24oZXZlbnQpCgoKIyAtLS0tLS0gSW50ZXJuYWwgYXN5bmMgd29ya2Zs
+b3cgLS0tLS0tICNAc3luYyBkZWYgcnVuX2hvbWVvd25lcl9mbG93KHRhc2tfaWQ6IHN0ciwgcGF5bG9hZDogZGlj
+dCk6CiAgICBhZ2VudCA9IGdldF9ob21lb3duZXJfYWdlbnQoKQogICAgYXdhaXQgY3JlYXRlX3Byb2plY3QodGFz
+a19pZCwgcGF5bG9hZCkKICAgIGF3YWl0IGFnZW50LnJ1bl9hc3luYyh0YXNrX2lkPXRhc2tfaWQsIHByb2plY3Q9
+cGF5bG9hZCkK
