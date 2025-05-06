@@ -65,7 +65,7 @@ The following tests have been verified to work with real data:
 - Evidence: Confirmed proper integration with real Gemini 1.5 Pro model
 - Output: Successfully ran a multi-turn conversation with proper memory integration
 
-### 9. Contractor Agent with Real LLM Test (🆕 ADDED)
+### 9. Contractor Agent with Real LLM Test (✅ VERIFIED)
 
 - `tests/integration/test_contractor_with_real_llm.py` - Added test for contractor workflow with real LLM integration
 - Creates a contractor, bid card, and project in Supabase
@@ -74,7 +74,16 @@ The following tests have been verified to work with real data:
 - Stores LLM responses in memory system
 - Records a bid in the database
 - Verifies all components work together
-- CI/CD configuration added to run LLM tests when specifically requested
+
+### 10. Matching Agent with Real LLM Test (🆕 ADDED)
+
+- `tests/integration/test_matching_with_real_llm.py` - New test for project-contractor matching functionality
+- Creates test projects and multiple contractors in Supabase
+- Configures a matching agent with the current Google ADK v0.4.0
+- Runs the agent to find suitable contractors for a project
+- Includes a simplified vector search tool
+- Records matches in the database
+- Verifies the matching functionality works end-to-end
 
 ## Integration Issues
 
@@ -291,7 +300,7 @@ We have successfully completed the following:
 1. **Complete the LLM Integration Test Suite**:
    - ✅ Created homeowner agent LLM integration test
    - ✅ Created contractor agent LLM integration test
-   - Create matching agent LLM integration test
+   - ✅ Created matching agent LLM integration test
    - Create multi-agent interaction test with real LLMs
    - Add edge case testing for LLM error handling
 

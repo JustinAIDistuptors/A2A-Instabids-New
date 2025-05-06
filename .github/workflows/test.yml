@@ -53,4 +53,4 @@ jobs:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
-        poetry run pytest tests/integration/test_homeowner_with_real_llm.py tests/integration/test_contractor_with_real_llm.py -v
+        poetry run pytest tests/integration/test_homeowner_with_real_llm.py tests/integration/test_contractor_with_real_llm.py tests/integration/test_matching_with_real_llm.py -v
