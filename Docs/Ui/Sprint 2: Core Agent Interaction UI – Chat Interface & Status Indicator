@@ -11,3 +11,22 @@ This could be a colored dot or icon with text (“Online”/“Offline”, “Id
 Implement logic to update this status: for instance, when a chat request is sent, show “Busy...” and when the agent finishes responding, revert to “Idle”. You might use a simple piece of React state or context that the ChatPanel updates, or rely on backend heartbeat/ping if available.
 Optionally, if the backend provides a status endpoint or WebSocket events for agent availability, integrate that: e.g., call a small /agent/status API periodically or subscribe to a WS channel to update the status in real-time.
 Update the main page (app/page.tsx or equivalent) to incorporate the new ChatPanel and status indicator in the layout. This will be the cornerstone of user interaction with the AI.
+Backend/Agent Integration: Tie the UI into the actual backend functionality:
+Ensure the FastAPI backend has an endpoint for chat or command inputs that supports streaming responses (likely using server-sent events or similar). The Vercel AI SDK’s useChat will manage the low-level details, but confirm the endpoint URL and payload format (e.g., messages with roles) match what useChat expects. Work with backend devs or documentation to align on the protocol.
+Authentication: if the API requires an auth token, modify the API client or useChat call to include required headers (perhaps integrate login in a future sprint if not done yet).
+Confirm that sending a message triggers agent processing in the backend (e.g., the agent-to-agent system does its work) and that the streamed response comes through. Handle cases where the backend might time out or return an error (e.g., show an error message in the chat).
+The agent status indicator might also be updated via backend info: for instance, when initiating a chat, assume agent is busy; if there’s an /agent/heartbeat endpoint, use it to set “Online/Offline”.
+Tests: Focus on validating the chat and status features:
+Unit Tests: Use React Testing Library to test the ChatPanel component’s behavior. Mock the useChat hook or its underlying functions:
+Simulate a user input submission and ensure that a new user message renders in the list, and a loading indicator appears for the agent response.
+Mock a streamed agent response (perhaps by calling an updater function from useChat) and verify the UI appends the agent’s message tokens properly and then finalizes the message.
+Test the AgentStatusBadge logic: when a certain prop or context state is “busy”, it renders the “Busy” status, etc.
+Integration/E2E Tests: Using Cypress, write a test that:
+Loads the application, enters a sample query in the chat input, and intercepts the network call to the chat endpoint (stub a short streaming response for predictability).
+Assert that the user’s message appears and then the agent’s response appears gradually (or at least the final text appears).
+Verify that the status indicator changes to “Busy” when the query is sent, and back to “Idle” after the response completes.
+Ensure all tests pass and that the chat interface is stable under basic scenarios. Also verify that rapid successive messages do not break the UI (maybe add a test for sending multiple messages sequentially).
+DevOps & GitHub Actions: Create a feature branch (e.g. ui/chat-interface). Use descriptive commit messages (e.g., feat(ui): add chat panel with streaming response). Before merging:
+Run all unit and integration tests in CI – the GitHub Actions pipeline should execute them on push/PR. Ensure the new tests (chat and status) are included in the test suite.
+If using Vercel for deploy previews, this branch deployment can be manually tested with the real backend. Verify that streaming works in the deployed environment as expected (this may involve configuring CORS or Vercel functions proxy if needed).
+After review, merge into main. This should trigger any CI/CD workflow for deployment (confirm that the app is deployed with the chat functionality accessible).
