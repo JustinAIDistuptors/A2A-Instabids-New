@@ -1,0 +1,19 @@
+Sprint 1: Foundation – Project Setup & Core Libraries
+Deliverables: Initialize the frontend project with Next.js (TypeScript enabled) and set up all core tooling. The outcome is a functioning app scaffold with styling and component libraries integrated, ready for development.
+Components & Files: Create the base project structure. For Next.js (using the latest App Router):
+Set up an app/ directory (or pages/ if using Pages Router) with a placeholder index page (e.g., a simple “Hello InstaBids” or landing UI).
+Install and configure Tailwind CSS (include a tailwind.config.js and global CSS imports) for utility-first styling.
+Integrate Shadcn UI components library (generate the initial UI setup via its CLI, ensuring a components/ui folder with Shadcn’s base components like Button, Input, etc.).
+Set up theming if needed (dark mode support, etc.) and ensure Radix Primitives (used by Shadcn) are properly configured.
+Add a .storybook/ directory and configure Storybook for isolated component development (this will help preview UI components during development).
+Backend/Agent Integration: Establish basic connection points to the FastAPI backend:
+Create a simple API client module (using fetch or Axios) and test a health-check endpoint on the FastAPI server. For example, a function in utils/api.ts that calls the backend’s status endpoint.
+No complex functionality yet, but verify that environment variables for backend URL or API keys are loaded (e.g., through Next.js environment config). This will ensure the frontend can communicate with the agent backend when needed.
+If authentication is required from the start (e.g., tokens), set up a placeholder auth context or utility (to be fleshed out in later sprints).
+Tests: Establish testing frameworks:
+Set up Jest and React Testing Library for unit tests. Create a trivial test (e.g. ensure the index page renders a welcome message) to verify the testing setup.
+Set up Cypress for end-to-end tests (since a cypress/ folder exists). Write a basic smoke test that runs the dev server and checks that the placeholder homepage loads without errors.
+Ensure the Tailwind and Next.js configurations do not produce build errors. Run npm run build (or yarn build) to confirm the project builds successfully.
+DevOps & GitHub Actions: Use a dedicated branch (e.g. ui/foundation) for this sprint’s work. Commits should follow the project’s guidelines (e.g., conventional commits like chore(ui): initialize Next.js project). When raising a Pull Request to main, ensure:
+GitHub Actions CI is triggered on the PR: it should install dependencies, run the build, and execute tests. All should pass in CI for the PR to be mergeable.
+If CI/CD workflows are set up (in .github/workflows), verify that a deployment pipeline (e.g., to a Vercel preview or similar) is triggered, producing a preview URL for the basic app. This confirms the base app is deployable.
