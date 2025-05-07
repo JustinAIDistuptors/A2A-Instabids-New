@@ -1,37 +1,115 @@
 """
-Global pytest configuration for the InstaBids test suite.
+Configuration for pytest
 
-This file contains common fixtures and configuration for all tests.
+This module sets up the test environment for pytest, including:
+- Loading environment variables from .env.test if available
+- Setting up mock services for CI
+- Providing fixtures for common test needs
 """
 
 import os
-import pytest
 import sys
-from datetime import datetime
+import pytest
+import asyncio
+from unittest.mock import patch
+from dotenv import load_dotenv
 
-# Ensure the base directory is in the Python path
+# Add the src directory to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Register custom markers
-def pytest_configure(config):
-    """Configure pytest with custom markers."""
-    config.addinivalue_line("markers", "asyncio: mark test to run using asyncio")
-    config.addinivalue_line("markers", "skip_llm: mark test to skip in CI non-LLM mode")
+# Load test environment variables if available
+if os.path.exists(".env.test"):
+    load_dotenv(".env.test")
+else:
+    load_dotenv()
 
-# Define a custom argument to skip LLM tests
-def pytest_addoption(parser):
-    """Add command-line options to pytest."""
-    parser.addoption(
-        "--skip-llm",
-        action="store_true",
-        help="Skip tests that require LLM interaction",
-    )
+# Check if we should use mock services
+MOCK_SERVICES = os.environ.get("MOCK_SERVICES", "false").lower() in ["true", "1", "yes"]
 
-def pytest_collection_modifyitems(config, items):
-    """Modify collected test items based on command-line options."""
-    if config.getoption("--skip-llm"):
-        skip_llm = pytest.mark.skip(reason="LLM tests skipped with --skip-llm option")
-        for item in items:
-            # Skip any test with "llm" in the name
-            if "llm" in item.name.lower():
-                item.add_marker(skip_llm)
+# Set up CI compatibility for pytest-asyncio
+if os.environ.get("CI") or MOCK_SERVICES:
+    # Use pytest-asyncio fixtures
+    @pytest.fixture(scope="session")
+    def event_loop():
+        """Create an event loop for the session."""
+        try:
+            loop = asyncio.get_event_loop_policy().new_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        yield loop
+        loop.close()
+
+
+@pytest.fixture(autouse=True)
+def mock_services():
+    """
+    Mock external services in tests.
+    
+    This fixture is applied to all tests automatically and mocks external services
+    if MOCK_SERVICES is True.
+    """
+    if MOCK_SERVICES:
+        # Mock Supabase API calls if needed
+        from unittest.mock import patch, MagicMock, AsyncMock
+        
+        # Create a dummy Supabase client
+        mock_client = MagicMock()
+        
+        # Mock the table method
+        mock_table = MagicMock()
+        mock_client.table.return_value = mock_table
+        
+        # Mock the execute method
+        mock_execute = MagicMock()
+        mock_execute.data = [{"id": "mock-id"}]
+        
+        # Mock the chain of methods
+        mock_table.insert.return_value.execute.return_value = mock_execute
+        mock_table.select.return_value.execute.return_value = mock_execute
+        mock_table.update.return_value.execute.return_value = mock_execute
+        mock_table.delete.return_value.execute.return_value = mock_execute
+        
+        # Allow chaining of methods
+        for method in ["select", "insert", "update", "delete", "eq", "in_", "gt", "lt", "is_", "neq"]:
+            mock_method = MagicMock()
+            mock_method.execute.return_value = mock_execute
+            
+            # Allow further chaining
+            for submethod in ["eq", "in_", "gt", "lt", "is_", "neq"]:
+                sub_mock = MagicMock()
+                sub_mock.execute.return_value = mock_execute
+                setattr(mock_method, submethod, lambda *args, **kwargs, sub=sub_mock: sub)
+            
+            setattr(mock_table, method, lambda *args, **kwargs, m=mock_method: m)
+        
+        # Mock the create_client function
+        with patch("supabase.create_client", return_value=mock_client):
+            yield
+    else:
+        yield
+
+
+@pytest.fixture
+def mock_environment():
+    """
+    Set up a mock environment for tests.
+    
+    This fixture sets environment variables for testing.
+    """
+    original_env = os.environ.copy()
+    
+    # Set up environment variables for testing
+    os.environ["SUPABASE_URL"] = os.environ.get("SUPABASE_URL", "https://example.com")
+    os.environ["SUPABASE_KEY"] = os.environ.get("SUPABASE_KEY", "mock-key")
+    os.environ["SUPABASE_ANON_KEY"] = os.environ.get("SUPABASE_ANON_KEY", "mock-anon-key")
+    os.environ["SUPABASE_SERVICE_ROLE"] = os.environ.get("SUPABASE_SERVICE_ROLE", "mock-service-role")
+    os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_API_KEY", "mock-google-api-key")
+    os.environ["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "mock-openai-api-key")
+    os.environ["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY", "mock-anthropic-api-key")
+    
+    yield
+    
+    # Restore the original environment
+    os.environ.clear()
+    os.environ.update(original_env)

@@ -1,8 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
-Script to automatically fix common Python syntax issues:
-- E701: Multiple statements on one line (colon)
-- F821: Undefined name (missing imports)
+Fix common syntax issues in test files.
+
+This script:
+1. Adds missing import statements
+2. Fixes pytest.mark.asyncio annotations
+3. Adds missing mock_environment fixtures to tests that need it
 """
 
 import os
@@ -10,95 +13,114 @@ import re
 import sys
 from pathlib import Path
 
-def fix_e701(content):
-    """Fix E701: Multiple statements on one line (colon)"""
-    # Pattern for if/for/while statements with code on same line
-    pattern = r'(^\s*(?:if|for|while|elif|else)\s+.*?):(\s*\S.*?)$'
-    
-    # Replace with proper indentation
-    def replace(match):
-        stmt, code = match.groups()
-        indent = len(match.group(0)) - len(match.group(0).lstrip())
-        return f"{stmt}:\n{' ' * (indent + 4)}{code.lstrip()}"
-    
-    return re.sub(pattern, replace, content, flags=re.MULTILINE)
+# Constants
+TEST_DIR = Path(__file__).parent.parent / "tests"
+ASYNCIO_IMPORT = "import pytest"
+MISSING_ASYNCIO_MARKER = re.compile(r'^(\s*)async\s+def\s+test_', re.MULTILINE)
+SUPABASE_CLIENT_IMPORT = "from supabase import create_client"
 
-def add_missing_imports(content, filename):
-    """Add commonly missing imports"""
-    missing_imports = []
-    
-    # Check for common undefined names
-    if 'json' in content and 'import json' not in content:
-        missing_imports.append('import json')
-    
-    if 'datetime' in content and 'import datetime' not in content and 'from datetime import' not in content:
-        missing_imports.append('import datetime')
-    
-    if 'typing' not in content and any(x in content for x in ['List', 'Dict', 'Optional', 'Union', 'Any', 'Tuple']):
-        missing_imports.append('from typing import List, Dict, Optional, Union, Any, Tuple')
-    
-    # Add imports if needed
-    if missing_imports:
-        # Find the right position to add imports (after existing imports)
-        import_section_end = 0
-        lines = content.split('\n')
-        
-        for i, line in enumerate(lines):
-            if line.startswith('import ') or line.startswith('from '):
-                import_section_end = i + 1
-        
-        # Insert imports after the last import or at the top
-        for imp in missing_imports:
-            lines.insert(import_section_end, imp)
-            import_section_end += 1
-        
-        return '\n'.join(lines)
-    
-    return content
 
-def process_file(filepath):
-    """Process a single Python file to fix common issues"""
-    print(f"Processing {filepath}...")
+def fix_test_file(file_path):
+    """
+    Fix common issues in a test file.
     
-    with open(filepath, 'r', encoding='utf-8') as f:
+    Args:
+        file_path: Path to the test file
+    
+    Returns:
+        bool: True if changes were made, False otherwise
+    """
+    with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
     
-    # Apply fixes
-    fixed_content = fix_e701(content)
-    fixed_content = add_missing_imports(fixed_content, filepath)
+    original_content = content
+    changes = []
     
-    # Only write if changes were made
-    if fixed_content != content:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(fixed_content)
-        print(f"Fixed issues in {filepath}")
-    else:
-        print(f"No issues found in {filepath}")
+    # Fix 1: Add missing pytest import if using pytest marks
+    if "@pytest.mark" in content and ASYNCIO_IMPORT not in content:
+        content = ASYNCIO_IMPORT + "\n" + content
+        changes.append("Added pytest import")
+    
+    # Fix 2: Add missing asyncio marker to async test functions
+    has_asyncio_import = "pytest-asyncio" in content or "pytest.mark.asyncio" in content
+    
+    # If we have async test functions but no asyncio import
+    if "async def test_" in content and not has_asyncio_import:
+        # Add import if needed
+        if "import pytest" not in content:
+            insert_pos = 0
+            import_match = re.search(r'^import\s+', content, re.MULTILINE)
+            if import_match:
+                # Find the last import statement
+                last_import = 0
+                for match in re.finditer(r'^(?:import|from)\s+', content, re.MULTILINE):
+                    last_import = max(last_import, match.end())
+                if last_import > 0:
+                    insert_pos = content.find('\n', last_import) + 1
+            
+            content = content[:insert_pos] + "import pytest\n" + content[insert_pos:]
+            changes.append("Added pytest import")
+        
+        # Add missing asyncio markers
+        def add_marker(match):
+            indentation = match.group(1)
+            return f"{indentation}@pytest.mark.asyncio\n{match.group(0)}"
+        
+        new_content = MISSING_ASYNCIO_MARKER.sub(add_marker, content)
+        if new_content != content:
+            content = new_content
+            changes.append("Added missing asyncio markers")
+    
+    # Fix 3: Add missing Supabase client import
+    if "supabase" in content and SUPABASE_CLIENT_IMPORT not in content and "client" in content:
+        # Find a good place to insert the import
+        insert_pos = 0
+        import_match = re.search(r'^import\s+', content, re.MULTILINE)
+        if import_match:
+            # Find the last import statement
+            last_import = 0
+            for match in re.finditer(r'^(?:import|from)\s+', content, re.MULTILINE):
+                last_import = max(last_import, match.end())
+            if last_import > 0:
+                insert_pos = content.find('\n', last_import) + 1
+        
+        content = content[:insert_pos] + SUPABASE_CLIENT_IMPORT + "\n" + content[insert_pos:]
+        changes.append("Added Supabase client import")
+    
+    # Fix 4: Fix pytest.fixture usage for test classes
+    if "class Test" in content and "self" in content and "@pytest.fixture" in content:
+        # Fix fixture usage in test classes
+        content = content.replace("@pytest.fixture", "@classmethod\n    @pytest.fixture")
+        changes.append("Fixed fixture usage in test classes")
+    
+    # Write the file if changes were made
+    if content != original_content:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"Fixed {file_path.name}: {', '.join(changes)}")
+        return True
+    
+    return False
+
 
 def main():
-    """Main function to process Python files"""
-    # Get the repository root directory
-    repo_root = Path(__file__).parent.parent
+    """Main function."""
+    # Find all test files
+    test_files = []
+    for root, _, files in os.walk(TEST_DIR):
+        for file in files:
+            if file.endswith(".py") and (file.startswith("test_") or root.endswith("tests")):
+                test_files.append(Path(root) / file)
     
-    # Files with known issues
-    problem_files = [
-        'legacy_src/agents/homeowner/agent.py',
-        'src/instabids/agents/homeowner_agent.py',
-        'src/instabids/data/project_repo.py',
-        'legacy_src/agents/matching/agent.py',
-        'src/instabids/agents/messaging_agent.py',
-        'src/instabids/webhooks.py',
-    ]
+    # Fix all test files
+    changes_made = 0
+    for file_path in test_files:
+        if fix_test_file(file_path):
+            changes_made += 1
     
-    # Process each file
-    for file_path in problem_files:
-        full_path = repo_root / file_path
-        if full_path.exists():
-            process_file(full_path)
-        else:
-            print(f"Warning: {file_path} not found")
-    
-    print("Syntax fixing complete!")
+    print(f"Fixed {changes_made} of {len(test_files)} test files")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

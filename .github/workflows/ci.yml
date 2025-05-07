@@ -5,53 +5,75 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Use GitHub secrets for Supabase credentials
+    # Use GitHub secrets for all credentials
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-      # Still use a dummy value for DB_URL since we don't have direct DB access in CI
-      SUPABASE_DB_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src
+      MOCK_SERVICES: "true"  # Force mock services in CI
+      CI: "true"
     
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       
       # Install dependencies explicitly
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install -e ".[dev]"
-      
-      # Set PYTHONPATH to include the src directory
-      - name: Set PYTHONPATH
-        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd):$(pwd)/src" >> $GITHUB_ENV
+          pip install pytest pytest-asyncio pytest-mock python-dotenv
       
       # Fix common syntax issues
       - name: Fix common syntax issues
         run: python scripts/fix_syntax.py
       
-      # Commit syntax fixes if any
-      - name: Commit syntax fixes if any
+      # Prepare test environment with mock data
+      - name: Prepare mock environment
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add -A
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-fix syntax issues" -a
-        continue-on-error: true
+          mkdir -p tests/fixtures
+          echo "Creating test environment file"
+          cat > .env.test << EOL
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE=${{ secrets.SUPABASE_SERVICE_ROLE }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          MOCK_SERVICES=true
+          EOL
+          
+          echo "Creating mock test data"
+          mkdir -p tests/fixtures/images
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" | base64 -d > tests/fixtures/images/test_image.jpg
       
-      # Run unit tests
+      # Run linting
+      - name: Run linting
+        run: python -m ruff check src tests
+      
+      # Run unit tests with mock services
       - name: Run unit tests
-        run: pytest -xvs tests/unit
-      
-      # Run integration tests
-      - name: Integration tests
-        run: pytest -xvs -m integration
+        run: |
+          python -m pytest -xvs tests/unit --no-header --tb=short
         env:
-          SUPABASE_URL: http://localhost:5432
-          SUPABASE_ANON_KEY: dummy
+          MOCK_SERVICES: "true"
+          PYTEST_PLUGINS: "pytest_mock"
+      
+      # Run integration tests with mock services
+      - name: Run integration tests
+        run: |
+          python -m pytest -xvs tests/integration -m "not live_service" --no-header --tb=short
+        env:
+          MOCK_SERVICES: "true"
+          PYTEST_PLUGINS: "pytest_mock"
 
   e2e:
     runs-on: ubuntu-latest
@@ -68,6 +90,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/src
+      MOCK_SERVICES: "true"
+      
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v2
@@ -95,7 +128,36 @@ jobs:
       - name: Create sample image for testing
         run: |
           echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" | base64 -d > cypress/fixtures/roof.jpg
-      - name: Run Cypress tests
+      - name: Run E2E tests
         run: pnpm exec cypress run
         env:
           SUPABASE_URL: http://localhost:5432
+          SUPABASE_ANON_KEY: dummy
+          MOCK_SERVICES: "true"
+
+  # Add a deploy job that runs on successful completion of the test jobs
+  deploy:
+    # Only run this job if the previous jobs succeed and we're on the main branch
+    needs: [test, e2e]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      # Build the package
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
+      
+      # Deploy to GitHub Packages
+      - name: Deploy to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pip install twine
+          python -m twine upload --repository-url https://maven.pkg.github.com/JustinAIDistuptors/A2A-Instabids-New dist/*
