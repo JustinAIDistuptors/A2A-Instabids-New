@@ -36,7 +36,7 @@ REQUIRED_MODULES = [
     "src.instabids.agents.contractor_agent",
     "src.instabids.tools.bid_visualization_tool",
     "memory.persistent_memory",
-    "src.instabids.mock.mock_adk"
+    "src.instabids.adk"
 ]
 
 # Required files for GitHub Actions
