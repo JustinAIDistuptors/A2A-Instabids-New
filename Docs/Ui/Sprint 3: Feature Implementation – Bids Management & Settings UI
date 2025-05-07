@@ -1,0 +1,40 @@
+Sprint 3: Feature Implementation – Bids Management & Settings UI
+Deliverables: Build out the core InstaBids feature interfaces, namely the bid management screens and a basic user/settings panel. By sprint’s end, users can create new bids, view active/past bids, and adjust key settings for the agent. The UI will utilize form components and data display components from Shadcn UI to ensure consistency.
+Components & Files: Introduce pages and components that realize the InstaBids domain features:
+Bid Creation Form – Develop a form for users to initiate a new bid request to the agent. For example, create components/BidForm.tsx:
+Include fields like item description, target price or max bid, auction details, etc., as appropriate for the InstaBids use case. Use Shadcn form elements (e.g., Input, Select, Textarea, DatePicker if needed for deadlines) to construct a user-friendly form.
+Integrate form validation, preferably using a schema (if using Zod, you could integrate with a form library that supports Zod schemas). Display validation errors inline for any required fields.
+On submission, call the backend (e.g., POST to /bids) to create the bid. If the backend triggers an agent process for the bid, ensure the UI handles the response (maybe the backend returns a success and the agent starts working – this will tie into workflow visualization in the next sprint).
+Bids Dashboard/List – Create a page or section (app/bids/page.tsx or a BidsList component) that displays current and past bids:
+Use a Table or Card list layout (Shadcn UI Table component for a tabular view or a grid of Card components for each bid). Show key info for each bid: e.g., item name, current status (active, won, lost, pending), and key metrics like current bid price.
+If applicable, allow selecting a bid entry to view more details (which could be a modal or separate detail page). You might create app/bids/[id]/page.tsx for a detailed view that the agent can populate with bid history, agent actions taken, etc.
+Ensure the list updates when a new bid is created (after using the BidForm, perhaps route the user to this list or update state to include the new bid).
+Settings Panel – Introduce a basic settings UI for user preferences and agent configurations (in app/settings/page.tsx or a modal accessible from the main interface):
+Provide controls for settings such as notification preferences, agent behavior toggles, API keys or auth if needed, etc. Use Shadcn UI controls like Switch for toggles, Checkbox groups for multi-select options, etc.
+This panel can be simple for now (scaffold the page and a few example settings) and will be expanded as needed. Ensure there’s a way to navigate to the Settings (e.g., an icon or link in a top navbar).
+If there are critical agent parameters (like risk level for bids, or budget limits), include those in the form and persist them (likely via backend endpoints or local storage if user-specific).
+Navigation & Layout updates: As we now have multiple pages (Chat, Bids, Settings), implement a basic navigation:
+Possibly a top nav bar or side menu with links/buttons for “Chat” (home), “Bids”, and “Settings”.
+Highlight the current section appropriately. Ensure this layout is responsive-friendly for future mobile considerations (using Tailwind’s responsive classes).
+Use Radix UI’s Tabs or a simple list of links styled as a menu for navigation.
+Backend/Agent Integration: Connect the new UI elements to backend logic:
+Bids API: Ensure the FastAPI backend has endpoints like GET /bids (to list bids), POST /bids (to create a new bid request), and possibly GET /bids/{id} for details. Use the established API client to call these from the appropriate UI actions:
+When the BidForm submits, POST to /bids and handle the response. If a new bid object is returned, update the UI (e.g., navigate to the bids list or push the new bid into a state).
+On the Bids dashboard, fetch the list of bids on page load (using Next.js data fetching methods or React query library). Display a loading skeleton (using Shadcn’s Skeleton component) while data loads.
+Consider Agent Activation: Upon creating a bid, the backend’s agent might start monitoring an auction or searching for deals. This means the UI should reflect that the bid is “active” and perhaps the agent is working on it. Make sure to indicate in the UI (maybe a badge “In Progress” on the bid card) and be ready to show updates (e.g. if the agent updates the bid status, the UI will reflect it — this will be tackled more in Sprint 4 with real-time updates).
+Settings Persistence: For any settings that map to backend configurations (e.g., agent aggressiveness, or toggling certain agent sub-features), connect the settings form to the backend (possibly GET/PUT to a /user/settings or similar endpoint). If no backend endpoint exists yet, store the settings locally for now but structure the code to easily switch to an API call once available.
+Continue to ensure proper authentication or passing of credentials for these new API calls if required.
+Tests: Expand test coverage to these new features:
+Unit Tests:
+Test BidForm component logic: supply sample inputs, simulate submission, and verify that if inputs are invalid, validation messages appear. If valid and API is called, ensure the form calls the right API client function (this can be mocked).
+Test BidsList component: given a sample list of bid objects (as props or state), ensure it renders a row/card for each and displays key fields. Test that an empty state (no bids) shows a friendly message.
+Test Settings component: if it manages state for toggles, simulate toggling and ensure it calls a save function or updates state accordingly. If using context for settings, test via that context.
+Integration Tests (Cypress):
+Write a test for the bid creation flow: navigate to the Bid creation page (or open the form modal), fill in the form fields, submit it, and stub the API response for creating a bid. Then check that the app navigates to or displays the new bid in the list.
+Test the bids listing: stub a couple of bid objects via API intercept on GET /bids and ensure the table/cards render those. If clickable, click on one to go to detail page and verify detail view loads (you can stub GET /bids/{id} as well).
+Test the settings: e.g., toggle a switch and verify some effect (if immediate UI effect or saved state). This might be minimal if settings don’t yet persist, but at least ensure the page loads.
+Run all tests to ensure the new features don’t break existing chat functionality (regression). All UI components should be working together.
+DevOps & GitHub Actions: Develop on a branch (e.g. ui/bids-feature). Commits might include feat: messages for adding the bids page, form, etc. Before merging:
+Verify CI runs all new tests. The Cypress tests might require seeding data or running the backend; if the CI environment is set up with a test backend or mocks, ensure it’s configured. (If not, consider using a mock server or skipping E2E in CI for now, but aim to have them run eventually.)
+Ensure storybook is updated with new components (optional: you can add stories for BidForm, BidList, etc., to visually test them in isolation).
+After merging to main, confirm deployment includes the new pages. Test on the deployed env that creating a bid actually reaches the backend and that data displays (this might be done in a staging environment). Address any deployment-specific issues (like environment variable for API base URL in production).
