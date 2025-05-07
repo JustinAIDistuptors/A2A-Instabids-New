@@ -79,9 +79,22 @@ def mock_services():
             for submethod in ["eq", "in_", "gt", "lt", "is_", "neq"]:
                 sub_mock = MagicMock()
                 sub_mock.execute.return_value = mock_execute
-                setattr(mock_method, submethod, lambda *args, **kwargs, sub=sub_mock: sub)
+                
+                # Create a closure to capture sub_mock for each submethod
+                def create_submock_wrapper(submock):
+                    def wrapper(*args, **kwargs):
+                        return submock
+                    return wrapper
+                
+                setattr(mock_method, submethod, create_submock_wrapper(sub_mock))
             
-            setattr(mock_table, method, lambda *args, **kwargs, m=mock_method: m)
+            # Create a closure to capture mock_method for each method
+            def create_method_wrapper(method_mock):
+                def wrapper(*args, **kwargs):
+                    return method_mock
+                return wrapper
+            
+            setattr(mock_table, method, create_method_wrapper(mock_method))
         
         # Mock the create_client function
         with patch("supabase.create_client", return_value=mock_client):
