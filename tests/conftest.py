@@ -96,8 +96,16 @@ def mock_services():
             
             setattr(mock_table, method, create_method_wrapper(mock_method))
         
-        # Mock the create_client function
-        with patch("supabase.create_client", return_value=mock_client):
+        # Mock the Google ADK module
+        mock_module = MagicMock()
+        mock_module.enable_tracing = MagicMock()
+        mock_module.UserMessage = MagicMock()
+        mock_module.AgentMessage = MagicMock()
+        
+        # Set up multiple patches
+        with patch("supabase.create_client", return_value=mock_client), \
+             patch.dict("sys.modules", {"google.adk": mock_module}), \
+             patch.dict("sys.modules", {"google.adk.messages": mock_module}):
             yield
     else:
         yield
