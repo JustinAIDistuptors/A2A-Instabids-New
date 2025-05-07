@@ -1,0 +1,42 @@
+Sprint 6: Final Polish – Performance, Mobile Optimization & Deployment Readiness
+Deliverables: In this last sprint, focus on optimization, responsiveness, and robustness. The UI will be refined for mobile use, performance improvements will be applied (fast load and smooth interaction), and the app will be prepared for production deployment with all tests passing. The end of this sprint marks the completion of the UI layer, ready for launch.
+Components & Files: No new features, but refining existing ones:
+Responsive Design: Review all pages and components to ensure they function on various screen sizes:
+Use Tailwind’s responsive utilities to adjust layouts for small screens. For example, the bid list might switch to a stacked card view on mobile, menus might collapse into a mobile menu (perhaps use Radix UI’s Sheet component as a slide-over menu for navigation).
+Ensure the chat interface reflows properly on mobile (the input might need to be fixed at bottom of screen, etc.). Test the modals and toasts on mobile sizes to confirm they are usable (toasts typically fine, modals should scale to full-screen on mobile if necessary).
+Add meta tags for mobile web app if not already (viewport settings).
+Performance Improvements: Identify any slow parts of the UI and optimize:
+Use Next.js dynamic imports or code-splitting for large components not needed on initial load (perhaps Storybook or heavy charts if any).
+Ensure that streaming and WebSocket connections are closed or paused when pages unload to avoid memory leaks. Check that event listeners are properly cleaned up in useEffect hooks.
+Optimize rendering of lists (e.g., use React virtualization if the bid list could grow large).
+Enable caching where appropriate: use SWR or React Query for data fetching to avoid unnecessary calls (especially for bids list or settings that don’t change often).
+Check Lighthouse performance scores and address issues like oversized images (if any), unneeded polyfills, etc.
+Robustness & Error Handling: Go through each feature and add any missing error handling:
+For example, if the chat backend is down, the UI should catch the error and show a friendly message (and perhaps retry option).
+If a WebSocket disconnects, attempt to reconnect automatically after a delay, and alert the user if real-time updates are lost.
+Ensure all API calls have try/catch and display errors in the UI (possibly via the notification system).
+Verify that the app doesn’t crash on any undefined data – add default states and loading fallbacks for all asynchronous data.
+Cleanup & Documentation: Remove any development artifacts (console logs, test buttons). Update the README or docs to include how to run the frontend, how to configure it (env vars), and how it integrates with the backend. Optionally, add usage documentation for future developers.
+Document the state management approach and any architectural decisions (so maintainers understand the event system, etc.).
+Ensure Storybook has stories for all major components and update any design documentation if maintained.
+Backend/Agent Integration: Final alignment with backend for production:
+Double-check environment configuration for production (e.g., correct API base URL, production WebSocket endpoint, any API keys). Ensure these are set via environment variables and that the build process can inject them (Next.js can use env vars at build time for public values).
+Run a full end-to-end test in a staging environment with the real backend: simulate a real user session from start to finish:
+User creates a bid via the UI.
+Agent processes it (possibly requiring a confirmation which the user gives via the UI).
+Agent completes the task, maybe the user gives feedback.
+Observe the entire UI flow for any hiccups.
+Work with the backend team to resolve any last-minute integration issues (for example, any mismatched field names, or adjust to any changes in backend since development started).
+Consider security review: ensure inputs from agent (which could be text) are sanitized or escaped to prevent any injection in the UI (though coming from our backend, but still best to treat it carefully).
+Tests: This sprint is about making sure everything is green and stable:
+Full Regression Testing: Run the entire test suite (unit + integration). Add tests for any new edge cases discovered during polish (for instance, a test for the reconnection logic: simulate a dropped WebSocket connection and ensure the app retries and shows a notification).
+Cross-Browser Testing: Verify the UI on multiple browsers (Chrome, Firefox, Safari) – this can be done manually or with tools like BrowserStack/Selenium if available. Ensure no layout issues or JS errors. Particularly test on mobile browsers for the responsive layout.
+Load Testing (optional): If feasible, perform a light load test on the UI’s integration:
+This could mean simulating many messages in chat or many concurrent WebSocket events to see if the UI can handle it without slowing down excessively. While not a typical front-end unit test, it’s a good practice to ensure the UI remains responsive under heavy agent activity.
+Accessibility Testing: Do a final accessibility audit. Use automated tools (axe) on each page and fix any reported issues. Also try keyboard navigation through key flows (e.g., tab through chat input to send button, etc.) and ensure screen reader reads important info (like new messages in chat should be announced).
+All tests must pass in CI, and ideally, achieve high coverage. This gives confidence for deployment.
+DevOps & GitHub Actions: Use a branch (e.g. ui/final-polish). This sprint might involve many small tweaks, so commit messages can be fix: or chore: types (e.g., fix(ui): improve mobile layout for bid cards, chore: add docs for frontend setup).
+Ensure the CI pipeline runs all checks including any linting or type checks. Clean up any linter warnings or TypeScript errors that were postponed.
+If any GitHub Actions for deployment require approvals or conditions (like maybe require tests to pass, or manual promotion to production), follow that process. Possibly set the main branch to require PR approval and CI passing if not already.
+Once everything is ready, merge to main. Tag a release (e.g., v1.0.0 for the UI) in the repository. This should trigger the production deployment workflow. Monitor the deployment to confirm it succeeds.
+After deployment, do a quick smoke test on production to ensure all major functions (chat, creating a bid, receiving updates, notifications) are working with real data. Any critical bugs discovered should be logged and fixed in a fast-follow patch sprint, but ideally the careful testing prior has minimized these.
