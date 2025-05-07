@@ -1,0 +1,13 @@
+Sprint 2: Core Agent Interaction UI – Chat Interface & Status Indicator
+Deliverables: Implement the primary user-agent communication interface. By the end of this sprint, the app will have a chat/command UI where the user can send queries/commands to the InstaBids AI agent and receive streaming responses. Additionally, a basic agent status indicator will show the agent’s state (e.g., idle, thinking, or active).
+Components & Files: Create new UI components and pages focused on chat and status:
+Chat Interface – Build a ChatPanel component (e.g., components/ChatPanel.tsx) containing:
+A message list UI to display conversation history (user queries and agent responses). Use Shadcn UI elements (such as Card or a styled Scrollbar container) for the chat log. Each message can be a sub-component (ChatMessage for user vs agent messages) with distinct styling.
+An input box and send button for user prompts. Leverage Shadcn’s Input and Button components for consistency.
+Use the Vercel AI SDK’s useChat hook to handle message state and streaming. Configure it to call the FastAPI backend’s chat endpoint (e.g., POST /agent/chat or similar) and stream responses. Ensure streaming data is appended to the message list in real-time (for a token-by-token AI response experience).
+Include visual feedback for streaming: for example, show a “typing…” indicator or a loader spinner while the agent is thinking/responding.
+Agent Status Indicator – Create a small UI element (e.g., AgentStatusBadge component) to show whether the agent is online/offline and idle or busy:
+This could be a colored dot or icon with text (“Online”/“Offline”, “Idle”/“Busy”). Place it in a common layout area, such as the header or sidebar of the app, visible at all times.
+Implement logic to update this status: for instance, when a chat request is sent, show “Busy...” and when the agent finishes responding, revert to “Idle”. You might use a simple piece of React state or context that the ChatPanel updates, or rely on backend heartbeat/ping if available.
+Optionally, if the backend provides a status endpoint or WebSocket events for agent availability, integrate that: e.g., call a small /agent/status API periodically or subscribe to a WS channel to update the status in real-time.
+Update the main page (app/page.tsx or equivalent) to incorporate the new ChatPanel and status indicator in the layout. This will be the cornerstone of user interaction with the AI.
