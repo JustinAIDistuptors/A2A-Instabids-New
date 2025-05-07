@@ -1,0 +1,233 @@
+InstaBids – Multi‑Agent Bidding Platform
+InstaBids is a multi-agent system leveraging Google’s Agent Development Kit (ADK) and Agent-to-Agent (A2A) protocol to streamline home improvement projects from creation to bidding. It uses AI agents to assist homeowners in scoping projects, automatically reach out to contractors, and facilitate bidding and communication – all integrated with a modern web frontend and robust backend services.
+Project Overview and Value
+InstaBids transforms the traditional home improvement bidding process by introducing AI agents that automate and enrich each step of the workflow. A homeowner can describe a project (with text and images), and the system’s Homeowner Agent helps refine the scope
+
+. The agent generates a “bid card” – a structured project summary – using AI analysis of the description and photos (including image classification via vision models)
+
+. The platform then intelligently matches and invites suitable contractors (via an Outbound Recruiter Agent, in progress) to review the bid card and submit bids. Throughout, InstaBids provides a chat interface for homeowners and contractors to communicate, with all messages logged. By automating project scoping and contractor outreach, InstaBids reduces turnaround time, ensures more accurate bids, and improves the experience for both homeowners and service providers. Key benefits of InstaBids include:
+AI-Assisted Project Scoping: The HomeownerAgent conducts an interactive Q&A with the homeowner to fill in details, infer missing info, and capture user preferences
+
+. It remembers past preferences (e.g. budget range) to avoid redundant questions
+
+.
+Automatic Bid Card Generation: Once the project details are gathered, the system produces a bid card – a concise summary of the project including category (e.g. repair, renovation), job type, photos, etc., and an AI-estimated confidence level
+
+. This bid card is saved for contractor viewing
+
+.
+Multi-Agent Collaboration: The platform’s agents coordinate via the A2A protocol, allowing each agent to specialize. For example, the OutboundRecruiterAgent (planned) will use the bid card to identify matching contractors and invite them to bid, while each Contractor Agent (in development) can assist in formulating or evaluating bids on behalf of a contractor.
+Integrated Messaging: Homeowners and contractors can communicate through an in-app messaging system (MVP implemented) to ask questions or clarify details. All conversation messages are tied to the project and stored securely with role-based access
+
+.
+Data-Driven Matching: As the system evolves, accumulated data on projects, contractors, and outcomes will feed matching algorithms (initial matching v1 in progress) to improve how contractors are selected and ranked for a given project.
+Overall, InstaBids adds intelligence and automation to the bidding process, aiming to save time, improve bid quality, and increase transparency for all parties.
+System Architecture and Agent Interconnections
+InstaBids follows a modular architecture with a clear separation of frontend, backend, and agent components:
+Next.js Frontend: A modern React/Next.js web application provides the user interface for homeowners and contractors. Users can create projects (upload descriptions and images), view generated bid cards, and chat within the app. The frontend communicates with the backend via RESTful API calls (and potentially directly with the database for certain actions using Supabase’s client libraries). It also includes a Storybook component library for UI elements (e.g. a ChatTimeline component for message history
+github.com
+) and Cypress end-to-end tests for critical flows.
+Python Backend (FastAPI): A FastAPI service exposes HTTP endpoints under the “InstaBids API”. For example, there is an endpoint to create a new project (POST /projects) which triggers the HomeownerAgent to start the project workflow
+
+. The FastAPI app also provides endpoints for retrieving messages, bid cards, etc., acting as the intermediary between the frontend and the agent logic. This backend layer orchestrates agent actions and handles persistence.
+AI Agents Layer (ADK/A2A): At the core of the system are AI agents built with Google’s ADK (Agent Development Kit) and following the A2A communication protocol. Each agent encapsulates specific responsibilities and communicates via structured events/messages:
+HomeownerAgent: Helps homeowners define and manage their project. It runs a conversational slot-filling process to gather all required project info (project description, budget, timeline, etc.), possibly asking follow-up questions
+
+. It uses an LLM under the hood (via ADK’s LlmAgent) to understand the user’s input and can leverage tools like database access or image analysis to enrich understanding. The HomeownerAgent ultimately delegates to the Bid Card logic to generate the project’s bid card
+
+, and can initiate communication with other agents (like notifying the recruiter agent that a new project is ready). (Status: Implemented and active in the current system
+
+.)
+BidCard Agent/Module: Not a human-facing agent, but an internal module responsible for creating the bid card given the project details and any vision analysis. It classifies the project into a category (e.g., repair, renovation) by keywords
+
+, evaluates image inputs (if any) to adjust confidence, and generates a structured bid card entry with fields such as category, job type, scope (project data), photo metadata, AI confidence score, and status (draft/final)github.com
+
+. The bid card is then saved to the database
+
+. (Status: Implemented as part of the HomeownerAgent flow – initially added in the “BidCard v2” sprint
+
+.)
+OutboundRecruiterAgent: Acts as a matchmaking agent that represents the platform’s efforts to find contractors for a project. After a bid card is created, this agent will identify candidate installers/contractors (based on project category, location, etc.) and send them the bid card details, inviting them to place bids. It may use predefined contractor data (e.g., a contractor database or external service) and criteria to determine the best matches. Communication from this agent could be via email, SMS, or internal notifications (to either human contractors or contractor agents). (Status: In progress on branch sprint/7-outbound-recruiter – the logic and agent class are under development. Integration with the main flow is planned in upcoming sprints.)
+Installer/ContractorAgent: Represents the contractor side in the agent ecosystem. This agent’s role is to assist contractors in reviewing projects and formulating bids. For instance, a ContractorAgent could parse the bid card, ask for clarifications from the HomeownerAgent if needed (via the messaging channel), and even draft a bid proposal using an LLM based on similar past projects. In a fully automated scenario, a ContractorAgent could simulate a contractor providing a bid; in a human-in-the-loop scenario, it could provide decision support to a human contractor (suggesting optimal bid ranges, for example). (Status: Initial version being developed on branch sprint/9-installer. Not yet merged into main – the current system expects human contractors to interact through the UI, but the groundwork for an AI-assisted contractor agent is being laid.)
+Other Supporting Agents: As the platform evolves, additional agents or sub-agents may be introduced – for example, an agent managing scheduling/logistics if group bidding or multi-contractor projects are allowed, or a quality assurance agent to check for completeness of project info. The architecture via A2A allows easy addition of such agents. (No other major agents are implemented as of now, but the design is extensible.)
+These agents communicate using the Agent-to-Agent (A2A) protocol, standardized event schemas, and ADK’s messaging framework. Internally, an a2a_comm module defines event types (like ProjectCreated, BidCardReady, InviteContractor) and message schemas for interactions
+
+. Currently, since the agents run within a single service process, much of this communication happens via direct Python calls or in-memory message passing. However, the system is built to be distributed: agents could be separate services in the future, communicating over a network with A2A JSON messages. The Memory subsystem is also crucial – agents share a PersistentMemory store
+
+ for conversation context and long-term knowledge about users. A memory-logging middleware tracks all agent dialogues for future reference
+
+ (ensuring continuity in multi-turn conversations). Data & Integration: The agents have access to external tools and knowledge via a Tools interface. Notably, the HomeownerAgent is initialized with a set of Supabase tools and an OpenAI Vision tool
+
+. The Supabase tools allow the agent to query or update the project database (e.g., to fetch user preferences or save new info) directly through secure functions, rather than relying solely on API endpoints. The OpenAI vision tool enables the agent to analyze images the homeowner uploads – for example, identifying features in a photo of a damaged roof. These tools extend the agent’s capabilities beyond the language model’s core skills, implementing the “ReAct” pattern (reasoning and acting). The agent chooses when to use a tool (for instance, when it needs to retrieve the homeowner’s default budget from the DB, it uses a Supabase query tool, or when it wants to describe an image, it invokes the vision tool). The system architecture can be visualized as follows:
+Frontend (Next.js) – user interacts (create project, chat) → Backend API (FastAPI) – receives requests, calls → Agent Factory – returns agent instances (singletons for each agent type)
+
+ → agents perform tasks and possibly communicate amongst themselves via A2A events → results (e.g., project created, bid card generated) are saved to Database (Postgres/Supabase) and returned via API → Frontend updates the UI (e.g. showing the new project ID, or displaying the bid card and messages).
+All agents and backend components are containerized and designed to run in the cloud. The use of ADK/A2A means that down the line, the system could also interact with external agents or services (for example, connecting to a third-party scheduling agent via the open A2A protocol) with minimal changes to the core logic.
+Technical Stack and Toolchain
+InstaBids is built with a modern, scalable stack:
+Language & Frameworks: Python 3.x powers the backend and agent logic, using FastAPI for the web API layer
+
+ and Google’s ADK for agent structure. The frontend is built with TypeScript/JavaScript using Next.js 14 (React 18)
+
+, giving a robust SSR-capable web interface.
+AI & ML: The Google ADK (vendored in the repository) provides the scaffolding for agent definition, including the LLMAgent base class and tracing utilities. The Large Language Model (LLM) behind the agents is OpenAI’s GPT (with support for vision input). The system is configured to use the OpenAI API (e.g., via an API key in the environment) for generating agent responses and analyzing images. By abstracting through ADK’s agent interface, swapping to alternative models or providers (Claude, PaLM, etc.) is possible in future if needed.
+Database: Postgres (Supabase) is used for persistence. A local Supabase instance (which is essentially a Postgres with extensions) runs in development/CI, and Supabase’s cloud service can be used in production. The database stores:
+Projects: Core project information (each project initiated by a homeowner). Schema: projects table (id, owner_id, title, description, etc.).
+Bid Cards: Summary of projects generated by AI
+
+. Each bid card links to a project and includes fields like category, job_type, budget_range, timeline, group_bidding (whether multiple contractors can collaborate on the job), scope_json (the full project details JSON), photo_meta (analysis metadata of uploaded images), an ai_confidence score, and a status (draft vs final)
+
+. These fields were introduced in the BidCard v2 update to enrich the information available to contractors.
+Messages: Chat messages between homeowner and agent (and eventually between homeowner and contractor)
+
+. Each message record includes sender role (homeowner or agent), content text, timestamp, and references the associated project. Role-Based Security rules ensure users can only see their own project’s messages
+
+.
+User Preferences: Long-term preferences learned or provided (e.g., preferred budget, style choices) stored per user
+
+. The HomeownerAgent updates this table to remember things like default budget ranges or other preferences with a confidence score, enabling personalization over time.
+Contractors (planned): A table for contractor users, including their profile, skills/categories, service area, etc. (This would be used by matching algorithms; initial implementation may use a static list or simplified representation, to be expanded in future sprints.)
+Bids (planned): When contractors submit bids, these would be stored (linking contractor, project, proposed cost, etc.). As of now, the data model for bids is being designed (not yet in main branch).
+All database changes are managed via SQL migration files under db/migrations. For example, migration 002_bid_cards.sql creates the bid_cards table and associated indices
+
+ and comments
+
+, and 003_messages_and_preferences.sql adds the messages and user_preferences tables with appropriate RLS policies
+
+.
+Security and Permissions: The system uses Supabase’s authentication and Row-Level Security (RLS) features. Each end-user (homeowner or contractor) authenticates (Supabase provides an auth.users table for this). RLS policies ensure that, for example, a homeowner can only select or insert messages for projects they own
+
+, and cannot access others’ data. The agents and backend services use a service role (with elevated privileges) when they need to perform actions on behalf of the user (notably, the HomeownerAgent posting a message or writing a preference on a user’s behalf will use the service key, as noted in the policy comments
+
+). All sensitive operations are thus protected, and secrets (like the OpenAI API key, Supabase service key, etc.) are stored in environment variables not in the code.
+DevOps and Toolchain: The project employs GitHub Actions for continuous integration (CI). On each push, the CI pipeline lints the code, runs tests, and builds the project. A custom CI workflow sets up a Supabase/Postgres test database (with health checks to ensure it’s ready
+
+), applies migrations, then runs backend integration tests and frontend tests. There are integration tests (written in Python, likely using pytest) that cover scenarios like the HomeownerAgent’s preference recall and API endpoints
+
+. Cypress tests cover end-to-end user flows in a headless browser (for example, creating a project and seeing a bid card appear). A special script scripts/fix_syntax.py can auto-format or fix common Python syntax issues
+
+, and is run in CI to enforce code style consistency. Package management is handled via pnpm (as the repo contains both Python and Node parts, pnpm is used for Node dependencies – e.g., Next, React, etc. – as indicated by the package.json
+
+).
+Testing and Quality: Both unit and integration tests are present. The backend has tests for repositories (e.g., verifying that user preference storage and retrieval works as expected
+github.com
+) and for agent logic (ensuring the HomeownerAgent sets slots correctly and yields the next prompt or final project info). The API routes have tests (commit logs show “Add API route tests”
+github.com
+), ensuring that endpoints like project creation and message fetching behave correctly. The frontend uses Cypress for simulating user interactions and verifying that the UI updates (the presence of cypress/e2e/bidcard.cy.js suggests a test that a project creation leads to a bid card being shown in the UI, for example). Storybook helps in visually testing components in isolation. Developers can run pnpm dev to start the Next.js dev server
+github.com
+ and uvicorn api.main:app (or a similar command) to start the FastAPI server locally; there is likely a convenience script or Docker Compose configuration to launch the entire stack (database, backend, frontend) for development consistency.
+Telemetry and Tracing: ADK’s enable_tracing("stdout") is called on agent startup
+github.com
+, which means the system logs agent events and interactions to the console. This is useful for debugging conversations between agents. In production, this could be directed to a monitoring service. (Future improvements might integrate OpenTelemetry or similar for distributed tracing across the agent interactions.)
+In summary, the tech stack combines AI (LLMs + vision), web tech (React/Next), and cloud-native databases (Supabase/Postgres) in a cohesive way. By using ADK and A2A, InstaBids ensures that it’s building on open standards for agent communication, making the solution future-proof and extensible.
+Feature Status – Implemented vs. In Progress
+This project is under active development, with a rapid sprint cycle. Below is a breakdown of major features and their status across the main branch and active branches:
+Homeowner Project Creation Flow: Implemented (Main branch) – A homeowner can initiate a project via the UI, providing a description and optional images. The HomeownerAgent engages to gather additional info (currently basic Q&A for missing fields) and creates a project entry. The FastAPI /projects endpoint is live and returns a new project_id upon success
+
+. What’s new: Compared to earlier versions, this flow now includes image handling (images are uploaded and temporarily stored, and metadata passed to the agent) and preference learning (the agent will extract any budget mention and store it as a user preference
+                                                                                                                                                                                          .
+AI Bid Card Generation: Implemented (Main) – The logic to generate bid cards is in place and invoked automatically during project creation. The resulting bid card is saved to the bid_cards table with richer fields like budget_range, timeline, etc., which were added in the “BidCard v2” update
+
+. The UI can display the bid card to the homeowner (e.g., showing the project category and AI confidence). What’s new: The bid card now includes an AI confidence score which determines if it’s marked “draft” or “final”
+
+ – if confidence is low (meaning the agent is unsure about the classification), the system might treat the bid card as needing review or edits.
+Messaging (Homeowner-Agent Chat): Implemented (Main) – A basic messaging interface is available. As soon as a project is created, the HomeownerAgent can send the first message (e.g., a confirmation or follow-up question), and the homeowner can respond via the chat UI. All messages go to the messages table, tagged by project and role
+
+. The FastAPI provides an endpoint (e.g., GET /projects/{id}/messages) to retrieve the message history
+
+, which the frontend uses to render the chat timeline (also accessible via Storybook). What’s new: This “Messaging MVP” was introduced in sprint 8 – enabling real-time conversation between user and agent, whereas previously the interaction might have been a simple form. RLS rules are in place so that only the project’s owner (and the agents via service role) can read/write those messages
+
+. Further enhancements (typing indicators, real-time updates via websockets or Supabase’s listen feature) are planned.
+User Preferences Memory: Implemented (Main) – The system now retains user preferences. For example, if a homeowner mentions “I have a budget of $10,000” in one project, the agent stores that as default_budget for that user
+
+. These preferences (stored with a confidence score in user_preferences
+
+) can be recalled in later conversations to personalize the experience (e.g., “I’ll try to stay within your usual budget range.”). This feature was added to give the agents long-term memory across sessions.
+Multi-Agent Coordination (A2A): Partially Implemented (Main) – The groundwork for multi-agent messaging is in place: event schemas and an a2a_comm module exist
+
+, and agents are designed to be triggered or trigger each other (e.g., the HomeownerAgent after finishing its job would emit a ProjectReady event that the OutboundRecruiterAgent could listen for). However, in the current main branch, only the HomeownerAgent actively operates. The actual spawning of the OutboundRecruiterAgent and ContractorAgents is under development. In practice, this means at present the hand-off to invite contractors is not automatic – that step may still be manual or simulated.
+Contractor Invitation & Matching: In Progress (Branch sprint/6-matching-v1 & sprint/7-outbound-recruiter) – The logic to match a project with potential contractors is being built. This includes developing criteria for matching (project category, location radius, contractor skills) and populating a sample contractor database. The OutboundRecruiterAgent will use this to select contractors and send them project details. Status: Not yet in main. The upcoming version will likely introduce a new API endpoint (or an internal trigger) to initiate outreach once a bid card is final. In the meantime, the system can be tested with a stub list of contractors or by manually creating some bid responses.
+Contractor Bidding Flow: Planned / In Progress (Branch sprint/9-installer) – Once contractors are invited, the next step is receiving and managing bids. The UI and backend will support contractors logging in, viewing projects they’ve been invited to, and submitting a bid (price, timeline, notes). The data model for bids will be added (with fields like amount, any attachments, etc., referencing contractor and project). Additionally, a ContractorAgent (if enabled) could auto-generate a bid proposal for a contractor to review. Status: Schema design and basic API in progress; not user-facing yet. This feature is slated for the next main release.
+Vision 2.0 Enhancements: In Progress (Branch feature/vision-2.0) – The current system uses a simple vision tool to label images. The Vision 2.0 initiative aims to deepen this: for example, using computer vision to detect specific objects or damage in photos (for better project categorization), or integrating with OpenAI’s Vision API (GPT-4 with vision) to let the agent reason about images in conversation. This could allow the HomeownerAgent to say, “I see from the photo that your roof has missing shingles,” adding context to the project scope. Status: Early experimentation. Some integration is already in place (the agent receives photo_meta which for now is mostly filenames; the plan is to populate it with actual analysis results).
+Testing & QA: Ongoing – Recent sprints have focused on expanding test coverage (e.g., integration tests for the entire create-project flow were added
+
+ Test infrastructure was cleaned up in a dedicated branch (test-infrastructure-clean), ensuring that each test run starts with a fresh database state and that all required components (like the Supabase test container and migrations) spin up reliably. Going forward, each new feature comes with corresponding tests (for instance, when the bidding feature is added, tests will validate that only invited contractors can bid, etc.).
+Documentation & Dev Experience: Ongoing – The repository’s documentation (including this README) is being updated to reflect the true state of the code (moving away from older design docs to the actual implementation). Inline code is being documented using Python docstrings and comments (for example, HomeownerAgent methods have docstrings explaining slot-filling and delegation to BidCardAgent
+
+Additionally, developer conveniences like the syntax fix script and consistent formatting have been introduced. A future task is to add a Contribution Guide and possibly set up pre-commit hooks for linting.
+In summary, the core functionality (project creation, bid card generation, and messaging) is in place and working in the main branch. Upcoming releases will bring the platform closer to end-to-end functionality by adding automated contractor outreach and bid handling. Each sprint is bringing a portion of planned features from “in progress” to “implemented,” so expect rapid evolution.
+Testing Setup
+Ensuring reliability in a multi-agent system is paramount. InstaBids employs a multi-layered testing strategy:
+Unit Tests: Individual functions and classes, especially in the data layer and utility modules, have unit tests. For instance, the user preference repository (instabids.data.preferences_repo) has tests to verify that inserting a preference and retrieving it behaves correctly
+github.com
+. Similarly, the classification function for bid cards and any logic-heavy components are unit tested. These tests run quickly and help catch regressions in business logic.
+Integration Tests: These tests spin up a temporary instance of the backend (or call its components directly) and a test database to simulate real scenarios. Using FastAPI’s test client and Pytest fixtures, the integration tests cover flows such as:
+Creating a project via the API and checking that a new project and bid card record are created in the database.
+Simulating a conversation: feeding a sequence of messages (Q&A) to the HomeownerAgent and ensuring the final outcome matches expectations (e.g., all required slots filled).
+Verifying that the memory mechanism works (e.g., if a budget is mentioned, after running the agent, the preference table has the new entry).
+Ensuring that the row-level security is correctly configured by attempting authorized vs. unauthorized data access in tests (for example, using Supabase’s anon role to fetch another user’s message should fail).
+Integration tests are automatically run in CI. The CI config uses a Postgres service (Supabase) and applies migration SQL files before running the test suite
+
+. This ensures the schema is up-to-date and identical to production. Recent CI improvements included adding a wait-for-healthy check on the DB service to avoid race conditions
+
+ and a syntax checker to catch Python issues early
+
+.
+End-to-End (E2E) Tests: Using Cypress, the team has begun implementing E2E tests that simulate a user’s journey in a browser:
+A typical E2E test might automate: login as a demo homeowner, go to “Create Project”, fill the form with a description and upload an image, submit, then verify that the page navigates to a project view where a bid card is displayed and an agent message appears greeting the user.
+Another E2E test could cover the messaging: ensure that when a user sends a chat message question, an agent’s reply appears.
+In the future, as contractor flows come online, E2E will cover a contractor logging in and submitting a bid.
+The repository includes a cypress/ directory and even a fixture image (roof.jpg) for these tests
+
+, indicating that a test simulates uploading a roof image to test the bid card creation with photos.
+Manual Testing and Storybook: Developers can run the application locally and use the Storybook (npm run storybook) to visually test components like forms and chat UIs in isolation. This is helpful for UI regression testing – if a change in the backend data format occurs, the developer can quickly see in Storybook if the UI component that relies on that data breaks. Additionally, because agents involve randomness (AI responses), manual testing is done to observe agent behavior in various scenarios. The team uses a set of predefined prompts to test the agent’s conversational path (ensuring it asks for missing info, handles different user inputs gracefully, etc.).
+Running Tests Locally: To run the backend tests, ensure you have a Postgres or Supabase test database running. You can use Docker to start one (the CI uses the official Supabase image for convenience). Set the appropriate env vars (like DATABASE_URL or Supabase keys) for the test environment. Then run pytest (assuming Pytest is the test runner). For frontend tests, run pnpm install to get dependencies, then pnpm run cypress:run for headless or pnpm run cypress to open the interactive test runner
+
+. You might need to have the development servers running (Next.js and FastAPI) for E2E tests to pass, or use a test-specific configuration where the backend is started in the background. The project strives for high test coverage. Every new feature is accompanied by tests in the same PR when merging to main. Code review checklists include ensuring that new code has appropriate tests and documentation. With these measures, we aim for each release of InstaBids to be stable and predictable despite the complexity introduced by multiple interacting agents.
+Deployment Flow
+Deploying InstaBids involves setting up several components and ensuring they can communicate. While full production deployment automation is a work in progress, the current approach is as follows:
+Infrastructure Overview: In production, InstaBids would run as a set of services:
+A PostgreSQL database with the InstaBids schema (we use Supabase in development, and we can use Supabase Cloud or a managed Postgres in production for convenience).
+The FastAPI backend (possibly containerized as a Docker image) running behind a web server or in a serverless container environment.
+The Next.js frontend, which can be statically built and served (or run on a Node server). Often, deploying Next.js on Vercel or a similar platform is ideal, or one can containerize the Next app as well.
+Optionally, if agents are decoupled into microservices in the future, each agent could run as its own service instance. For now, the agents run within the FastAPI process.
+Environment Configuration: Deployment requires setting environment variables for:
+Supabase/Postgres: connection URL, authentication keys. For example, a SUPABASE_URL, SUPABASE_ANON_KEY for frontend to talk to the DB (if it does) and a SUPABASE_SERVICE_ROLE_KEY for the backend to bypass RLS when needed
+
+. If using vanilla Postgres, a DATABASE_URL with credentials is used.
+OpenAI API: OPENAI_API_KEY so that the agents can call OpenAI’s API for language and vision capabilities.
+Secret keys for sessions or JWTs (if the frontend uses Supabase Auth, it might handle JWTs; otherwise, FastAPI might have its own session handling).
+Other configs like allowed origins, etc., as needed (FastAPI could use an environment-based config for CORS origins to allow the Next.js frontend domain).
+Build and Release Process: For the frontend, run pnpm run build to generate an optimized Next.js build. This can output a .next directory ready to serve, or if using Vercel, simply push to the main branch and let Vercel handle the deployment (since it detects Next.js projects automatically). For the backend, build a Docker image using the provided Dockerfile (if available) or a standard Python base image: install requirements, run migrations on entry, then start the Uvicorn server. We plan to provide a one-command deployment (possibly a Docker Compose template or Terraform scripts) once the system stabilizes.
+Database Migration: When deploying a new version, apply any new SQL migrations to the database. In development, this is done via the Supabase CLI or running the SQL files manually. In CI, it’s automated. In production, we might integrate Alembic or a migration tool for a seamless upgrade, but currently the SQL files serve as the migration source of truth. The db folder contains numbered migration scripts that should be applied in order. For example, if you’re upgrading from an earlier version and see that 002_bid_cards.sql and 003_messages_and_preferences.sql are new, you’d run those on the database (or use Supabase CLI which reads the migrations folder and applies any pending ones).
+Launching Services: Ensure the database is running and accessible. Then launch the backend service. If using Docker Compose, the compose file would define a service for FastAPI (with the environment variables) and one for Postgres. FastAPI will connect to the DB, create tables if not existing (the code calls migrations or uses an ORM – in our case we rely on migrations so the expectation is the DB is pre-migrated). Then launch the Next.js app (which may be just static files served by a CDN or a Node server). The Next app must be configured to know where the API is (for example, using an environment variable NEXT_PUBLIC_API_URL).
+Verifying Deployment: After deployment, run a quick smoke test:
+Hit the health-check endpoint of FastAPI (if defined) or simply the root path to see if it returns 200.
+From the frontend, try to create a test project and see if everything works (project created, data appears in DB, etc.).
+Check that the agents are able to connect to OpenAI (this requires the OpenAI key to be valid and the server to have egress internet access).
+Monitoring: Logging for the backend can be directed to a logging service or console. Given the interactive nature of agents, monitoring their output (and any errors in calls to external APIs) is crucial. We plan to integrate an application monitoring service. Also, Supabase provides a dashboard to monitor the database (including row-level security logs, etc.) which is useful for debugging any access issues.
+Continuous Deployment: Currently, deployment is manual or semi-automated (triggered via CI when merging to main, for example). We have 5 open pull requests at the moment, and once they are merged and tested, a deployment can be cut. In the near future, we aim to set up a staging environment that deploys every push to main, and a production environment that is updated via tagged releases. This will likely involve GitHub Actions pushing Docker images to a registry and updating a service (on AWS, GCP, or Azure).
+For development and local testing, the process is simpler: a developer can run supabase start (if using the Supabase CLI) which brings up a local Postgres with the project schema, run the backend (uvicorn api.main:app --reload) and in a separate terminal run pnpm dev for the Next app. This yields a fully functional local instance on localhost. We have included sample environment variable files (.env.example) to help set this up with minimal friction (including a demo anon/service key for local Supabase and perhaps a placeholder OpenAI key). Note: At this stage, InstaBids has not been deployed to a public URL for external users. It’s primarily running in development and test environments. As features stabilize, we will deploy an alpha version for internal testing by our team (expected to be done after the contractor bidding feature is complete). Deployment instructions will be refined at that time, possibly including container images on Docker Hub and a link to the live demo.
+Next Steps and Contribution Guidelines
+InstaBids is an ambitious project at the intersection of AI and web development, and we welcome contributions and feedback. Below are the immediate next steps in our roadmap, as well as guidelines for anyone looking to contribute:
+Upcoming Features and Improvements
+Complete Contractor Flow: Finish implementing the OutboundRecruiterAgent and ContractorAgent. This involves creating the contractor invitation system, allowing contractors to log in and see projects, and enabling them to submit bids. Once this is in place, we’ll have a true end-to-end demo: homeowner posts project → AI generates bid card → system invites contractors → contractors respond with bids → homeowner receives multiple bids.
+Real-Time Updates: Improve the real-time aspect of the app. Currently, after a homeowner submits a project, they might need to refresh or continuously poll to see contractor responses. We plan to integrate real-time channels (possibly using Supabase’s realtime or a WebSocket in FastAPI) so that as soon as an agent or contractor makes an update (like sending a message or submitting a bid), the relevant parties’ UIs update immediately.
+Enhanced Agent Intelligence: Tune the prompts and behavior of the HomeownerAgent and future agents. For example, make the HomeownerAgent’s questions more dynamic and context-aware, incorporate follow-ups based on previous projects, or use external knowledge bases for more informed answers. We will also work on the Vision agent capabilities (e.g., automatically detecting project type from images without any description). All agent prompts and system instructions are currently in instabids/agents/prompts/ (with default system prompts defined for each agent); these will be iteratively refined.
+Scaling and Performance: As we move towards production, we’ll optimize the system. This includes caching frequent DB queries (perhaps using Redis for preferences or project data), batching outgoing messages or invitations (so if 100 contractors qualify, the recruiter agent doesn’t flood the system with 100 separate messages at once), and possibly rate-limiting user inputs to avoid prompt abuse. We’ll also ensure that the AI API usage is efficient (e.g., using lower-cost models when appropriate, or reusing context between messages to minimize token usage).
+Error Handling and Fallbacks: Robustify the system against failures. If the LLM call fails (API outage or timeout), the HomeownerAgent should handle it gracefully (maybe apologize and retry or ask the user to rephrase). If an agent crashes or returns an unexpected result, ensure it doesn’t break the whole app – perhaps have a fallback to manual mode. These contingencies will be added as we test more edge cases.
+UI/UX Enhancements: The current frontend, while functional, will be improved. We aim to add a dashboard for homeowners to track all their projects and bids, a separate dashboard for contractors (showing invited projects and status of their bids), and polishing the chat interface (with markdown support for agent messages, maybe the agent can send images or rich content in future). We’ll also incorporate user feedback mechanisms for when an AI suggestion is off-target, to continually improve our prompts.
+Documentation: Beyond this README, we will maintain developer documentation in the docs/ directory (which contains design notes and possibly ADRs – Architectural Decision Records). We plan to update the API documentation (possibly using Swagger or FastAPI’s docs)
+github.com
+ so that frontend and third-party integrations know how to interact with the backend. Additionally, we might create a short guide for setting up the dev environment from scratch, including seeding some test data (like sample contractors).
+Deployment Pipeline: Set up an automated deployment (CI/CD) to a staging environment for testing. This might involve Docker Compose or Kubernetes manifests checked into the repo, and using GitHub Actions to deploy. Security review and pen-testing will also be scheduled as we near a public launch.
+Contributing Guidelines
+We are excited to collaborate! If you’re a developer or PM joining the team (or an open-source contributor, if we open this repo), here’s how to get started and our guidelines:
+Setup: Clone the repo and read through this README to understand the project structure. Install Python 3.10+ and Node 18+. Use pnpm for Node package management (simply run npm install -g pnpm if you don’t have it). Copy .env.example to .env and fill in any required keys (OpenAI, Supabase, etc.). Run pnpm install in the root to install Node dependencies (this will also run pip install -r requirements.txt for Python via a postinstall script, or do that manually inside a Python venv).
+Branching Model: We use a sprint-based branching strategy. The main branch is the stable integration branch (protected; all PRs go through review and CI). For each feature or sprint, create a branch prefixed with sprint/ or feature/ (e.g., sprint/10-payment-integration if we were adding payments). Work on that branch and open a Pull Request against main when ready. Ensure your branch is up to date with main (rebasing if necessary) to ease the merge process.
+Coding Conventions: Follow PEP8 for Python code. We use autoformatting (Black) and linting (flake8) – the CI will fail if code doesn’t meet standards. For React/Next code, follow the Airbnb JavaScript style guide. We use functional components and hooks; keep components small and focused. Write docstrings for all public classes and methods in Python, and JSDoc comments for complex TypeScript functions. Use descriptive commit messages (and we squash merge PRs, so ensure your final commit message or PR title is descriptive of the feature).
+Testing: Any new feature or bugfix should come with tests. If you’re adding a new agent method, add a unit test for it. If you’re adding an API endpoint, extend the integration tests. For UI changes, if applicable, add or update Cypress tests. Run pytest and pnpm run test locally to ensure everything passes before pushing. Our CI will run the full test suite on your PR.
+Discussion and Design: We use GitHub Issues to track tasks and bugs. If you plan a significant change, please file an issue or comment on an existing one to discuss with the team before implementation. Design proposals or architectural changes can be added to the docs/ directory (feel free to submit a PR with an ADR if you think we should take a different technical approach somewhere).
+Feature Flags: For any experimental feature (especially those involving AI behavior changes), consider using a feature flag or config toggle. This allows us to merge the code but disable it in production if needed. For example, the vision analysis could be behind a flag until it’s fully reliable.
+Deployment and Releases: Only maintainers can deploy to production, but you can deploy to your local or a personal cloud for testing. If you need to test something in an environment similar to production, coordinate with the team – we might have a staging environment you can use. When your PR is merged, it will be included in the next release. We tag releases with semantic versioning (e.g., v0.2.0 for the next milestone that includes contractor bidding). Changelog entries will be compiled from PR titles.
+Community and Support: If this project becomes open-source, we will have a CONTRIBUTING.md and a code of conduct. For now, within the team, just be respectful and constructive in code reviews and discussions. We have a Slack channel (#instabids) for quick questions and brainstorming.
