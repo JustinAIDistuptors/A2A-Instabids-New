@@ -10,6 +10,9 @@ pydantic
 # Supabase Client
 supabase
 
+# PostgreSQL Async Client
+asyncpg
+
 # Google Cloud Services (Vision, potentially others later)
 google-cloud-vision
 
