@@ -46,7 +46,6 @@ async def chat_ws(ws: WebSocket, project_id: str):
                     user_id=data["user_id"],
                     description=data.get("text"),
                     form_payload=data.get("form"),
-                    # photo / voice paths are handled by REST endpoints to simplify upload
                     project_id=project_id
                 )
                 

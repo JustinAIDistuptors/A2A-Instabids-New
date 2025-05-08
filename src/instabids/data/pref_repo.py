@@ -1,93 +1,77 @@
 """
-Repository for managing user preferences in the database.
+Preference repository for accessing and modifying user preferences.
 """
-import os
-import json
-from typing import Any, Dict, Optional, List, Union
-from supabase import create_client  # type: ignore
+from typing import Dict, Any, Optional
+import logging
+from datetime import datetime
 
-_sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_ANON_KEY"])
+logger = logging.getLogger(__name__)
 
-def upsert_pref(user_id: str, key: str, value: Any, confidence: float = 0.5) -> Dict[str, Any]:
+# Mock database for testing
+_preferences = {}
+
+def get_pref(user_id: str, key: str) -> Optional[Any]:
     """
-    Create or update a user preference.
+    Get a user preference.
     
     Args:
-        user_id: The user's ID
+        user_id: User ID
         key: Preference key
-        value: Preference value (will be JSON serialized)
-        confidence: Confidence score for this preference (0.0-1.0)
         
     Returns:
-        The inserted/updated preference data
+        Preference value or None if not found
     """
-    result = _sb.table("user_preferences").upsert({
-        "user_id": user_id,
-        "pref_key": key,
-        "pref_value": json.dumps(value),
-        "confidence": confidence,
-        "updated_at": "now()"  # Use server timestamp
-    }).execute()
-    
-    return result.data[0] if result.data else {}
+    user_prefs = _preferences.get(user_id, {})
+    return user_prefs.get(key)
 
-def get_pref(user_id: str, key: str) -> Any:
+def upsert_pref(user_id: str, key: str, value: Any) -> bool:
     """
-    Retrieve a specific user preference.
+    Set a user preference.
     
     Args:
-        user_id: The user's ID
-        key: Preference key to retrieve
+        user_id: User ID
+        key: Preference key
+        value: Preference value
         
     Returns:
-        The preference value (deserialized from JSON) or None if not found
+        True if successful
     """
-    result = _sb.table("user_preferences").select("pref_value") \
-             .eq("user_id", user_id).eq("pref_key", key).execute()
-    
-    if not result.data:
-        return None
+    if user_id not in _preferences:
+        _preferences[user_id] = {}
         
-    # Parse JSON value
-    try:
-        return json.loads(result.data[0]["pref_value"])
-    except (json.JSONDecodeError, KeyError):
-        return None
+    _preferences[user_id][key] = value
+    logger.info(f"Set preference {key} for user {user_id}")
+    
+    return True
 
 def get_all_prefs(user_id: str) -> Dict[str, Any]:
     """
-    Retrieve all preferences for a user.
+    Get all preferences for a user.
     
     Args:
-        user_id: The user's ID
+        user_id: User ID
         
     Returns:
-        Dictionary of all user preferences
+        Dictionary of preferences
     """
-    result = _sb.table("user_preferences").select("pref_key", "pref_value") \
-             .eq("user_id", user_id).execute()
-    
-    prefs = {}
-    for item in result.data:
-        try:
-            prefs[item["pref_key"]] = json.loads(item["pref_value"])
-        except (json.JSONDecodeError, KeyError):
-            continue
-            
-    return prefs
+    return _preferences.get(user_id, {}).copy()
 
 def delete_pref(user_id: str, key: str) -> bool:
     """
     Delete a user preference.
     
     Args:
-        user_id: The user's ID
-        key: Preference key to delete
+        user_id: User ID
+        key: Preference key
         
     Returns:
-        True if successful, False otherwise
+        True if successful, False if not found
     """
-    result = _sb.table("user_preferences").delete() \
-             .eq("user_id", user_id).eq("pref_key", key).execute()
+    if user_id not in _preferences or key not in _preferences[user_id]:
+        logger.warning(f"Preference {key} not found for user {user_id}")
+        return False
+        
+    del _preferences[user_id][key]
+    logger.info(f"Deleted preference {key} for user {user_id}")
     
-    return len(result.data) > 0
+    return True

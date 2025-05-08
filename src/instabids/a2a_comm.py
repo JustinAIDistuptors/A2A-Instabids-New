@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Registry of event handlers
 _event_handlers: Dict[str, List[Callable]] = {}
 
-def send_envelope(event_type: str, payload: Dict[str, Any], source: str) -> str:
+def send_envelope(event_type: str, payload: Dict[str, Any], source: str = "unknown") -> str:
     """
     Send an event envelope to other agents.
     

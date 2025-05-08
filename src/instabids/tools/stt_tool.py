@@ -1,66 +1,56 @@
 """
-Speech-to-text tool using OpenAI Whisper API with log probability guard.
-
-This module provides a function to transcribe audio using OpenAI's Whisper model
-and filters out potential hallucinations based on log probability thresholds.
+Speech-to-text tool for converting audio to text.
 """
-import openai
-import os
-import base64
-import tempfile
-import logging
 from typing import Optional
+import base64
+import os
+import logging
+import openai
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
-# Configure OpenAI API
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Configure the OpenAI API key
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+if OPENAI_API_KEY:
+    openai.api_key = OPENAI_API_KEY
+else:
+    logger.warning("OPENAI_API_KEY not set in environment variables")
 
-# Log probability threshold for filtering out hallucinations
-# ≈ 0.85 average probability per token
-LOGPROB_THRESH = -1.8
-
-async def speech_to_text(b64_audio: str) -> Optional[str]:
+async def speech_to_text(base64_audio: str) -> Optional[str]:
     """
-    Transcribe base64-encoded audio using OpenAI's Whisper model.
+    Convert speech to text using OpenAI's Whisper API.
     
     Args:
-        b64_audio: Base64-encoded audio data
+        base64_audio: Base64-encoded audio data
         
     Returns:
-        Transcribed text if confidence is high enough, None otherwise
-        
-    Raises:
-        Exception: If transcription fails
+        Transcribed text or None if failed
     """
     try:
-        # Create temporary file for the audio
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-            # Decode and write the audio data
-            tf.write(base64.b64decode(b64_audio))
-            tf.flush()
-            
-            # Call Whisper API
-            resp = await openai.Audio.atranscribe(
-                "whisper-1",
-                open(tf.name, "rb"),
-                logprobs=True,  # returns per-token logprobs
-            )
-            
-            # Clean up the temporary file
-            os.unlink(tf.name)
+        # Decode base64 to binary
+        audio_binary = base64.b64decode(base64_audio)
         
-        # Filter out potential hallucinations based on log probability
-        if resp["avg_logprob"] < LOGPROB_THRESH:
-            logger.warning(
-                f"Transcription rejected due to low confidence: {resp['avg_logprob']} < {LOGPROB_THRESH}"
-            )
-            return None
-            
-        logger.info(f"Transcription accepted with confidence: {resp['avg_logprob']}")
-        return resp["text"]
-        
+        # Use OpenAI Whisper API
+        temp_file = "temp_audio.m4a"
+        try:
+            with open(temp_file, "wb") as f:
+                f.write(audio_binary)
+                
+            # Call the Whisper API
+            with open(temp_file, "rb") as f:
+                transcript = await openai.Audio.atranscribe("whisper-1", f)
+                
+            # Check confidence
+            if transcript["avg_logprob"] < -1.0:  # Low confidence threshold
+                logger.warning("Low confidence in speech transcription")
+                return None
+                
+            return transcript["text"]
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+                
     except Exception as e:
-        logger.error(f"Speech-to-text transcription failed: {str(e)}")
-        raise
+        logger.error(f"Error in speech to text conversion: {str(e)}")
+        return None

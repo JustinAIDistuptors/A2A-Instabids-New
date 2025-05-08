@@ -15,7 +15,7 @@ client = TestClient(app)
 def test_ws_roundtrip():
     """Test a basic WebSocket chat round-trip with the agent."""
     # Mock the agent's process_input method to return a predictable response
-    with patch('instabids.agents.homeowner_agent.HomeownerAgent.gather_project_info', 
+    with patch('instabids.agents.homeowner_agent.HomeownerAgent.process_input', 
                new_callable=AsyncMock) as mock_process:
         
         # Set up the mock response
@@ -39,9 +39,9 @@ def test_ws_roundtrip():
             
             # Verify the mock was called with the correct parameters
             mock_process.assert_called_once()
-            call_args = mock_process.call_args[1]
-            assert call_args["user_id"] == "u1"
-            assert "roof fix $8k" in call_args["description"]
+            call_kwargs = mock_process.call_args.kwargs
+            assert call_kwargs["user_id"] == "u1"
+            assert call_kwargs["description"] == "Need roof fix $8k"
 
 @pytest.mark.integration
 def test_ws_missing_user_id():
@@ -61,7 +61,7 @@ def test_ws_missing_user_id():
 @pytest.mark.integration
 def test_ws_conversation_completion():
     """Test that WebSocket closes when conversation is complete."""
-    with patch('instabids.agents.homeowner_agent.HomeownerAgent.gather_project_info', 
+    with patch('instabids.agents.homeowner_agent.HomeownerAgent.process_input', 
                new_callable=AsyncMock) as mock_process:
         
         # Set up the mock to indicate conversation is complete

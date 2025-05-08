@@ -48,13 +48,15 @@ class HomeownerAgent(LlmAgent):
     def __init__(self, memory: Optional[PersistentMemory] = None):
         super().__init__(name="HomeownerAgent", tools=[*supabase_tools, openai_vision_tool], system_prompt=SYSTEM_PROMPT, memory=memory or PersistentMemory())
         
-    async def gather_project_info(self, user_id: str, description: Optional[str] = None) -> Dict[str, Any]:
+    async def gather_project_info(self, user_id: str, description: Optional[str] = None, form_payload: Optional[Dict[str, Any]] = None, project_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Gather project information through slot-filling.
         
         Args:
             user_id: User ID for preference lookup/storage
             description: Optional initial project description
+            form_payload: Optional form data
+            project_id: Optional project ID for context
             
         Returns:
             Dict with project info or next question
@@ -122,7 +124,7 @@ class HomeownerAgent(LlmAgent):
             pass
             
         # Gather project information
-        return await self.gather_project_info(user_id, description)
+        return await self.gather_project_info(user_id, description, form_payload, project_id)
     
     async def answer_question(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -159,17 +161,16 @@ class HomeownerAgent(LlmAgent):
             "confidence": cls["confidence"],
         }
         try:
-            with repo._Tx():
-                pid = repo.save_project(row)
-                if images:
-                    repo.save_project_photos(pid, images)
+            pid = repo.save_project(row)
+            if images:
+                repo.save_project_photos(pid, images)
         except Exception as err:
             logger.error(f"Failed to save project: {err}")
             raise
             
         # --- emit A2A envelope -----------------------------------------
         payload = {"project_id": pid, "homeowner_id": row["homeowner_id"]}
-        send_envelope("project.created", payload)
+        send_envelope("project.created", payload, "homeowner_agent")
         return pid
 
 
