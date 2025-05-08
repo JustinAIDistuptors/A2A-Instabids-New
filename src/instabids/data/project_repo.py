@@ -23,8 +23,9 @@ def _retry(fn, *a, **kw):
     for i in range(_MAX_RETRY):
         try:
             return fn(*a, **kw)
-        except Exception as e:
-            if i == _MAX_RETRY-1: raise
+        except Exception:
+            if i == _MAX_RETRY-1:
+                raise
             time.sleep(0.5 * (i+1))
 
 # ---------------- public helpers ----------------

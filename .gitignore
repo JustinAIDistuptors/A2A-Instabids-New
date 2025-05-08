@@ -18,7 +18,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -149,4 +149,7 @@ node_modules/
 .DS_Store
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# Next.js build output
+frontend/.next/

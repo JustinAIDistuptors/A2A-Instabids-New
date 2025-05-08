@@ -1,4 +1,5 @@
 Sprint 1: Foundation – Project Setup & Core Libraries
+- [x] **Status: Completed**
 
 Goal: Set up a functioning scaffold for the InstaBids UI using modern best practices and tooling. This includes project initialization, styling systems, component libraries, testing, and a base API integration.
 
