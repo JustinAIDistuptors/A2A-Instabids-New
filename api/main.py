@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from instabids.agents.factory import get_homeowner_agent
 from instabids.api.routes.messages import router as messages_router
+from instabids.api.routes.bid_cards import router as bid_cards_router
 import uuid, os, shutil, tempfile
 
 app = FastAPI(title="InstaBids API", version="0.1.0")
@@ -19,6 +20,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(messages_router, prefix="/api")
+app.include_router(bid_cards_router, prefix="/api")
 
 class ProjectIn(BaseModel):
     description: str
