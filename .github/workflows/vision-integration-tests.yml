@@ -1,0 +1,69 @@
+name: Vision Integration Tests
+
+on:
+  push:
+    branches:
+      - 'sprint/23-vision-2.0-integration'
+      - 'feature/vision-2.0'
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - 'src/instabids/tools/vision_tool_plus.py'
+      - 'src/instabids/tools/base64_helpers.py'
+      - 'src/instabids/agents/slot_filler.py'
+      - 'tests/unit/test_vision*'
+      - 'tests/integration/test_vision*'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest pytest-asyncio
+
+      - name: Run unit tests with mocked API calls
+        run: |
+          python -m pytest tests/unit/test_vision_tool_plus.py tests/unit/test_base64_helpers.py tests/unit/test_vision_slot_filler.py -v
+        env:
+          # This is a dummy API key for testing with mocked API calls
+          OPENAI_API_KEY: sk-dummy-key-for-testing-with-mocks
+
+      - name: Run integration tests with mocked API calls
+        run: |
+          python -m pytest tests/integration/test_vision_integration.py -v
+        env:
+          # This is a dummy API key for testing with mocked API calls
+          OPENAI_API_KEY: sk-dummy-key-for-testing-with-mocks
+
+  linting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+
+      - name: Run linting
+        run: |
+          ruff check src/instabids/tools/vision_tool_plus.py src/instabids/tools/base64_helpers.py src/instabids/agents/slot_filler.py
