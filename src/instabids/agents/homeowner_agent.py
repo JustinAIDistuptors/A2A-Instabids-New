@@ -5,8 +5,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from google.adk import LlmAgent, enable_tracing
 from google.adk.messages import UserMessage
+
+# Tools imports
 from instabids.tools import supabase_tools
 from instabids.tools.stt_tool import speech_to_text
+from instabids.tools.vision_tool_plus import analyse, validate_image_for_bid_card
+
+# Other imports
 from instabids.a2a_comm import send_envelope
 from memory.persistent_memory import PersistentMemory
 from memory.conversation_state import ConversationState
@@ -25,7 +30,8 @@ SYSTEM_PROMPT = (
     "Given images, voice/text, or forms, classify the project, ask clarifying "
     "questions, persist structured data to Supabase, and emit a 'project.created' "
     "A2A envelope once you have enough details. Keep memory of preferences and "
-    "prior jobs for each user."
+    "prior jobs for each user. Analyze images to identify damage, materials, "
+    "and project type."
 )
 
 class HomeownerAgent(LlmAgent):
