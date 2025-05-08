@@ -11,8 +11,10 @@ dependencies = [
   "supabase>=2.3.1",
   "google-adk>=0.2.0",
   "pgvector>=0.2.6",
-  "openai>=1.25.0",
+  "openai>=1.25.0",  # Minimum version required for GPT-4o Vision
   "asyncpg>=0.27.0",
+  "pillow>=10.0.0",  # For image processing
+  "python-multipart>=0.0.6",  # For handling multipart form data
 ]
 
 [project.optional-dependencies]
@@ -20,6 +22,7 @@ dev = [
   "ruff>=0.4.2",
   "mypy>=1.15.0",
   "pytest>=8.1.0",
+  "pytest-asyncio>=0.21.1",  # For testing async functions
 ]
 
 [tool.hatch.metadata]
@@ -41,3 +44,9 @@ disallow_untyped_defs = false       # allow the few un-annotated helpers for now
 [build-system]
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
+
+# ---- Pytest configuration ----
+[tool.pytest.ini_options]
+asyncio_mode = "auto"  # Handle async tests automatically
+testpaths = ["tests"]
+addopts = "-v"
