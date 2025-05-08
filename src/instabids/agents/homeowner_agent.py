@@ -1,10 +1,11 @@
-"""HomeownerAgent: multimodal concierge for homeowners."""
+'''HomeownerAgent: multimodal concierge for homeowners.'''
 from __future__ import annotations
+import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from google.adk import LlmAgent, enable_tracing
 from google.adk.messages import UserMessage
-from instabids.tools import supabase_tools, openai_vision_tool
+from instabids.tools import supabase_tools
 from instabids.tools.stt_tool import speech_to_text
 from instabids.a2a_comm import send_envelope
 from memory.persistent_memory import PersistentMemory
@@ -12,7 +13,7 @@ from memory.conversation_state import ConversationState
 import logging
 from instabids.data import project_repo as repo
 from .job_classifier import classify
-from .slot_filler import missing_slots, SLOTS, get_next_question
+from .slot_filler import missing_slots, SLOTS, get_next_question, process_image_for_slots, update_card_from_images
 
 # enable stdout tracing for dev envs
 enable_tracing("stdout")
@@ -28,15 +29,15 @@ SYSTEM_PROMPT = (
 )
 
 class HomeownerAgent(LlmAgent):
-    """Concrete ADK agent with multimodal intake and memory."""
+    '''Concrete ADK agent with multimodal intake and memory.'''
     def __init__(self, memory: Optional[PersistentMemory] = None):
-        super().__init__(name="HomeownerAgent", tools=[*supabase_tools, openai_vision_tool], 
-                         system_prompt=SYSTEM_PROMPT, memory=memory or PersistentMemory())
+        super().__init__(name="HomeownerAgent", tools=[*supabase_tools], 
+                      system_prompt=SYSTEM_PROMPT, memory=memory or PersistentMemory())
         
     async def gather_project_info(self, user_id: str, description: Optional[str] = None, 
-                                form_payload: Optional[Dict[str, Any]] = None, 
-                                project_id: Optional[str] = None) -> Dict[str, Any]:
-        """
+                               form_payload: Optional[Dict[str, Any]] = None, 
+                               project_id: Optional[str] = None) -> Dict[str, Any]:
+        '''
         Gather project information through slot-filling.
         
         Args:
@@ -47,7 +48,7 @@ class HomeownerAgent(LlmAgent):
             
         Returns:
             Dict with project info or next question
-        """
+        '''
         # Initialize or get state
         state_key = f"project_info:{user_id}"
         state = self.memory.get(state_key, ConversationState())
@@ -87,7 +88,7 @@ class HomeownerAgent(LlmAgent):
         project_id: Optional[str] = None,
         image_paths: List[Path] | None = None
     ) -> Dict[str, Any]:
-        """
+        '''
         Process user input from various sources (text, audio, form).
         
         Args:
@@ -100,7 +101,7 @@ class HomeownerAgent(LlmAgent):
             
         Returns:
             Response dict with next question or project info
-        """
+        '''
         # Process audio input if provided
         if base64_audio:
             transcript = await speech_to_text(base64_audio)
@@ -118,16 +119,6 @@ class HomeownerAgent(LlmAgent):
             bid_card.update(form_payload)
             self.memory.set("bid_card", bid_card)
         
-        # Process images if provided
-        vision_context = {}
-        vision_tags = []
-        if image_paths:
-            vision_context = await self._process_images(image_paths)
-            # Extract tags for classification
-            for img_data in vision_context.values():
-                if isinstance(img_data, dict) and "tag" in img_data:
-                    vision_tags.append(img_data["tag"])
-        
         # Build bid_card dict from memory + this turn
         bid_card = {
             **self.memory.get("bid_card", default={}),
@@ -135,9 +126,23 @@ class HomeownerAgent(LlmAgent):
             "user_id": user_id,
         }
         
-        # Add image context if available
-        if vision_context:
-            bid_card.setdefault("images", []).extend(list(vision_context.values()))
+        # Process images if provided and update bid_card with extracted information
+        if image_paths:
+            try:
+                # Use the enhanced slot filler to process images
+                bid_card = await update_card_from_images(bid_card, [str(path) for path in image_paths])
+                
+                # Log processed images
+                logger.info(f"Processed {len(image_paths)} images for slot filling")
+                if "project_images" in bid_card:
+                    logger.info(f"Images added to project: {len(bid_card['project_images'])}")
+                
+                # Extract any damage assessment for later use
+                if "damage_assessment" in bid_card and bid_card["damage_assessment"]:
+                    logger.info(f"Extracted damage assessment from images: {bid_card['damage_assessment'][:50]}...")
+            except Exception as e:
+                logger.error(f"Error processing images: {e}")
+                # Continue with what we have, don't fail the entire process
         
         # Check if we need more information using slot filler
         missing = missing_slots(bid_card)
@@ -152,8 +157,14 @@ class HomeownerAgent(LlmAgent):
             }
         
         # If we have all needed information, finalize project
-        # Classify the job based on description and vision tags
-        classification = classify(bid_card.get("description", ""), vision_tags)
+        # Classify the job based on description and any extracted category from images
+        classification_input = bid_card.get("description", "")
+        if "category" in bid_card and bid_card["category"]:
+            classification_input += f" {bid_card['category']}"
+        if "job_type" in bid_card and bid_card["job_type"]:
+            classification_input += f" {bid_card['job_type']}"
+            
+        classification = classify(classification_input)
         
         # Set default category if not provided
         if not bid_card.get("category"):
@@ -171,7 +182,7 @@ class HomeownerAgent(LlmAgent):
         }
     
     async def answer_question(self, question: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """
+        '''
         Answer a homeowner's question about their project.
         
         Args:
@@ -180,23 +191,27 @@ class HomeownerAgent(LlmAgent):
             
         Returns:
             Agent's response
-        """
+        '''
         # TODO: Implement answer_question
         return "I'll need to look that up for you."
     
     async def create_project(self, description: str, images: Optional[List[Dict[str, Any]]] = None,
-                           category: Optional[str] = None, urgency: Optional[str] = None,
-                           user_id: Optional[str] = None, vision_context: Optional[Dict[str, Any]] = None) -> str:
-        """Create a project in the database."""
-        # Extract vision tags for classification
-        vision_tags = []
+                       category: Optional[str] = None, urgency: Optional[str] = None,
+                       user_id: Optional[str] = None, vision_context: Optional[Dict[str, Any]] = None) -> str:
+        '''Create a project in the database.'''
+        # Prepare classification input with any additional context
+        classification_input = description
         if vision_context:
             for img_data in vision_context.values():
-                if isinstance(img_data, dict) and "tag" in img_data:
-                    vision_tags.append(img_data["tag"])
-                    
+                if isinstance(img_data, dict):
+                    # Add any labels or descriptions from vision analysis
+                    if "labels" in img_data and isinstance(img_data["labels"], list):
+                        classification_input += " " + " ".join(img_data["labels"])
+                    if "description" in img_data and img_data["description"]:
+                        classification_input += " " + img_data["description"]
+                        
         # Get classification
-        cls = classify(description, vision_tags)
+        cls = classify(classification_input)
         
         # Prepare project row
         row = {
@@ -214,26 +229,41 @@ class HomeownerAgent(LlmAgent):
             logger.error(f"Failed to save project: {err}")
             raise
             
-        # --- emit A2A envelope -----------------------------------
+        # --- emit A2A envelope ----------------------------------
         payload = {"project_id": pid, "homeowner_id": row["homeowner_id"]}
         send_envelope("project.created", payload, "homeowner_agent")
         return pid
     
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
     # Internal helpers
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
     async def _process_images(self, image_paths: List[Path]) -> dict[str, Any]:
-        """Call the vision tool and return parsed context."""
-        context: dict[str, Any] = {}
-        for p in image_paths:
-            result = await openai_vision_tool.call(image_path=str(p))
-            context[p.name] = result
-        return context
+        '''Process images through vision analysis and slot filling.'''
+        try:
+            # Convert paths to strings
+            path_strings = [str(p) for p in image_paths]
+            
+            # Use the enhanced slot filler's process_image_for_slots function
+            results = await asyncio.gather(*[process_image_for_slots(path) for path in path_strings])
+            
+            # Combine results
+            combined_context = {}
+            for i, result in enumerate(results):
+                if result:  # Only add if we got valid results
+                    img_name = image_paths[i].name
+                    combined_context[img_name] = result
+            
+            return combined_context
+        except Exception as e:
+            logger.error(f"Error processing images: {e}")
+            return {}
     
     async def _create_project(self, bid_card: Dict[str, Any]) -> str:
-        """Create a project with collected information."""
+        '''Create a project with collected information.'''
         # Extract images if present
-        images = bid_card.pop("images", [])
+        images = []
+        if "project_images" in bid_card:
+            images = bid_card.pop("project_images")
         
         # Extract user_id
         user_id = bid_card.get("user_id")
@@ -251,16 +281,21 @@ class HomeownerAgent(LlmAgent):
             "group_bidding": bid_card.get("group_bidding", "no").lower() == "yes",
         }
         
+        # Add damage assessment if available
+        if "damage_assessment" in bid_card and bid_card["damage_assessment"]:
+            project_data["damage_notes"] = bid_card["damage_assessment"]
+        
         try:
             with repo._Tx():
                 pid = repo.save_project(project_data)
                 if images:
-                    repo.save_project_photos(pid, images)
+                    image_data = [{"path": img} for img in images] if isinstance(images[0], str) else images
+                    repo.save_project_photos(pid, image_data)
         except Exception as err:
             logger.error(f"Failed to save project: {err}")
             raise
             
-        # --- emit A2A envelope -----------------------------------
+        # --- emit A2A envelope ----------------------------------
         payload = {"project_id": pid, "homeowner_id": project_data["homeowner_id"]}
         send_envelope("project.created", payload)
         return pid
