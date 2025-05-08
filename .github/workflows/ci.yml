@@ -90,7 +90,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           for i in {1..15}; do
-            pg_isready -U postgres -d postgres -h localhost -p 5432 && echo "PostgreSQL is ready" && break
+            pg_isready -U root -d postgres -h localhost -p 5432 && echo "PostgreSQL is ready" && break
             echo "Waiting for PostgreSQL... Attempt $i/15"
             sleep 5
             if [ $i -eq 15 ]; then
