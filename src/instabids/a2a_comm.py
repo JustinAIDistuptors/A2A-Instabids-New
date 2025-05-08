@@ -1,68 +1,61 @@
-"""
-Agent-to-Agent Communication Module.
+"""A2A communication module.
 
-This module provides functions for sending and receiving messages between agents
-in the InstaBids system.
+This module provides functions for sending and receiving events between agents.
 """
 
-from typing import Dict, Any, Callable, Optional, List
+import uuid
 import json
 import logging
-import datetime
-from uuid import uuid4
+from typing import List, Dict, Any, Callable
 
 logger = logging.getLogger(__name__)
 
 # Registry of event handlers
 _event_handlers: Dict[str, List[Callable]] = {}
 
-def send_envelope(event_type: str, payload: Dict[str, Any], source: str) -> str:
+def send_envelope(event_type: str, payload: Dict[str, Any], source: str = "unknown") -> str:
     """
     Send an event envelope to other agents.
     
     Args:
-        event_type: Type of event being sent
-        payload: Event payload data
-        source: Source agent identifier
+        event_type: Type of event (e.g., 'project.created')
+        payload: Event data
+        source: Name of the sending agent
         
     Returns:
-        Envelope ID
+        ID of the envelope sent
     """
-    envelope_id = str(uuid4())
-    timestamp = datetime.datetime.now().isoformat()
-    
+    # Generate an envelope
+    envelope_id = str(uuid.uuid4())
     envelope = {
         "id": envelope_id,
         "type": event_type,
         "source": source,
-        "timestamp": timestamp,
+        "timestamp": 12345678,  # placeholder for actual
         "payload": payload
     }
     
-    logger.info(f"Sending envelope: {envelope_id} of type {event_type} from {source}")
+    # Log the envelope for debugging
+    logger.info(f"Sending envelope: {envelope}")
     
-    # Dispatch to registered handlers
+    # Deliver to handlers
     _dispatch_envelope(envelope)
     
     return envelope_id
 
-def on_envelope(event_type: str) -> Callable:
+def register_handler(event_type: str, handler: Callable[[Dict[str, Any]], None]) -> None:
     """
-    Decorator to register a handler for a specific event type.
+    Register a handler for an event type.
     
     Args:
         event_type: Type of event to handle
-        
-    Returns:
-        Decorator function
+        handler: Function to call when events of this type are received
     """
-    def decorator(func: Callable) -> Callable:
-        if event_type not in _event_handlers:
-            _event_handlers[event_type] = []
-        _event_handlers[event_type].append(func)
-        logger.info(f"Registered handler for event type: {event_type}")
-        return func
-    return decorator
+    if event_type not in _event_handlers:
+        _event_handlers[event_type] = []
+        
+    _event_handlers[event_type].append(handler)
+    logger.debug(f"Registered handler for {event_type}")
 
 def _dispatch_envelope(envelope: Dict[str, Any]) -> None:
     """
@@ -71,18 +64,12 @@ def _dispatch_envelope(envelope: Dict[str, Any]) -> None:
     Args:
         envelope: Event envelope to dispatch
     """
-    event_type = envelope.get("type")
-    if not event_type:
-        logger.error("Envelope missing event type")
-        return
-    
-    handlers = _event_handlers.get(event_type, [])
-    if not handlers:
-        logger.warning(f"No handlers registered for event type: {event_type}")
-        return
-    
-    for handler in handlers:
-        try:
-            handler(envelope)
-        except Exception as e:
-            logger.error(f"Error in handler for event type {event_type}: {e}")
+    event_type = envelope["type"]
+    if event_type in _event_handlers:
+        for handler in _event_handlers[event_type]:
+            try:
+                handler(envelope)
+            except Exception as e:
+                logger.error(f"Error in handler for {event_type}: {e}")
+    else:
+        logger.debug(f"No handlers registered for {event_type}")
