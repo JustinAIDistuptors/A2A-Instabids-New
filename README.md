@@ -4,9 +4,20 @@ This repository contains InstaBids' implementation of the Google Agent Developme
 
 ## Features
 
+### Memory Persistence and Slot Filling Integration
+
+The latest version includes memory persistence with Supabase, which enables maintaining user context across conversations:
+
+- User preferences are automatically learned and stored in the database
+- Conversation history is preserved for better context understanding
+- Multi-modal inputs (text, images) are integrated in the memory model
+- Slot filling framework for structured data collection with persistence
+
+For more details, see the [Memory Integration Guide](docs/memory_integration.md).
+
 ### Vision 2.0 Integration
 
-The latest version includes Vision 2.0 integration, which enhances the platform with image analysis capabilities:
+Includes Vision 2.0 integration, which enhances the platform with image analysis capabilities:
 
 - Image analysis using OpenAI's GPT-4o Vision API
 - Automatic extraction of project details from images
@@ -41,6 +52,13 @@ To use the vision integration features, you need to set up your OpenAI API key:
 export OPENAI_API_KEY=your_api_key_here
 ```
 
+To use the memory persistence features, set up your Supabase credentials:
+
+```bash
+export SUPABASE_URL=your_supabase_url
+export SUPABASE_SERVICE_ROLE=your_supabase_service_role_key
+```
+
 ## Usage
 
 ### Basic Agent
@@ -59,35 +77,29 @@ from instabids_google.adk import enable_tracing
 enable_tracing(output="stdout")
 ```
 
-### Vision-Enhanced Homeowner Agent
+### Memory-Enabled Homeowner Agent
 
 ```python
-from instabids.agents.homeowner_agent import HomeownerAgent
-from pathlib import Path
+from supabase import create_client
+from src.agents.homeowner_agent import HomeownerAgent
 
-# Create the homeowner agent
-agent = HomeownerAgent()
+# Create a Supabase client
+supabase = create_client("SUPABASE_URL", "SUPABASE_SERVICE_ROLE")
 
-# Process input with images
-result = await agent.process_input(
-    user_id="user123",
-    description="I need to fix my leaking roof",
-    image_paths=[Path("path/to/roof_image.jpg")]
-)
+# Create the homeowner agent with memory persistence
+agent = HomeownerAgent(supabase)
 
-# Check if more information is needed
-if result["need_more"]:
-    print(f"Need more info: {result['follow_up']}")
-else:
-    print(f"Project created with ID: {result['project_id']}")
+# The agent will automatically use persistent memory for slot filling
+response = await agent.handle(message, handler)
+print(response.text)
 ```
 
 ## Demo Applications
 
-To test the vision integration features, try the demo application:
+To test the memory and vision integration features:
 
 ```bash
-python examples/vision_slot_filler_demo.py path/to/image.jpg
+python examples/memory_slot_filler_demo.py
 ```
 
 ## Testing
@@ -102,6 +114,8 @@ python -m pytest tests/integration
 To test specific modules:
 
 ```bash
-python -m pytest tests/unit/test_vision_tool_plus.py
-python -m pytest tests/unit/test_vision_slot_filler.py
+python -m pytest tests/test_memory/test_persistent_memory.py
+python -m pytest tests/test_memory/test_conversation_state.py
+python -m pytest tests/test_slot_filler/test_slot_filler_factory.py
+python -m pytest tests/test_agents/test_memory_enabled_agent.py
 ```

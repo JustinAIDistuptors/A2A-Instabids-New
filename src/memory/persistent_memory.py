@@ -1,288 +1,330 @@
+#!/usr/bin/env python
 """
-PersistentMemory implementation that provides user-specific memory persistence.
+Persistent memory implementation using Supabase as backend storage.
+
+This module provides persistent memory capabilities for InstaBids agents.
 """
 
-import logging
-from typing import Dict, List, Any, Optional
 import json
-import datetime
+import logging
+import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
 
-from google.adk.memory import Memory
 from supabase import Client
 
+# Set up logging
 logger = logging.getLogger(__name__)
 
 
-class PersistentMemory(Memory):
+class PersistentMemory:
+    """Persistent memory with Supabase backend storage.
+    
+    This class provides persistent memory capabilities for agents, storing user
+    preferences, conversation contexts, and interaction history.
     """
-    User-specific persistent memory implementation compatible with ADK.
-    Stores and retrieves memory from Supabase database.
-    """
-
+    
     def __init__(self, db: Client, user_id: str):
-        """Initialize with database client and user ID."""
-        super().__init__()  # Initialize base Memory class
+        """Initialize persistent memory for a user.
+        
+        Args:
+            db: Supabase client instance
+            user_id: User ID to associate with this memory instance
+        """
         self.db = db
         self.user_id = user_id
-        self._memory_cache: Dict[str, Any] = {}  # In-memory cache
-        self._is_loaded = False
-        self._is_dirty = False  # Track if memory needs to be saved
-
+        self._data = {}
+        self._dirty = False
+        self._loaded = False
+        
     async def load(self) -> bool:
-        """Load user's memory from database."""
-        if self._is_loaded:
-            return True
-
+        """Load memory from database.
+        
+        Returns:
+            bool: True if memory was loaded successfully, False otherwise
+        """
         try:
-            logger.info(f"Loading memory for user {self.user_id}")
-            result = (
-                await self.db.table("user_memories")
-                .select("memory_data")
-                .eq("user_id", self.user_id)
-                .maybe_single()
-                .execute()
-            )
-
-            if result.data:
-                self._memory_cache = result.data.get("memory_data", {})
-                self._is_loaded = True
-                logger.info(f"Successfully loaded memory for user {self.user_id}")
-                return True
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Check if memory exists for this user
+            response = self.db.table('user_memories').select('*').eq('user_id', user_uuid).execute()
+            
+            if response.data and len(response.data) > 0:
+                # Memory exists, load it
+                self._data = response.data[0]['memory_data']
+                logger.info(f"Loaded memory for user {self.user_id}")
             else:
-                # Initialize new memory
-                logger.info(
-                    f"No existing memory found for user {self.user_id}. Initializing."
-                )
-                self._memory_cache = {
-                    "interactions": [],
-                    "context": {},
-                    "learned_preferences": {},
-                    "creation_date": datetime.datetime.utcnow().isoformat(),
+                # No memory exists, create a new one
+                logger.info(f"No memory found for user {self.user_id}, creating new memory")
+                new_memory = {
+                    'user_id': user_uuid,
+                    'memory_data': {}
                 }
-                self._is_loaded = True
-                self._is_dirty = True
-                await self.save()  # Create initial memory record
-                return True
-
+                response = self.db.table('user_memories').insert(new_memory).execute()
+                self._data = {}
+            
+            self._loaded = True
+            self._dirty = False
+            return True
         except Exception as e:
-            logger.error(
-                f"Error loading memory for user {self.user_id}: {e}", exc_info=True
-            )
+            logger.error(f"Error loading memory: {e}")
             return False
-
+    
     async def save(self) -> bool:
-        """Save current memory state to database."""
-        if not self._is_dirty:
+        """Save memory to database if it has changed.
+        
+        Returns:
+            bool: True if memory was saved successfully, False otherwise
+        """
+        if not self._loaded:
+            logger.warning("Attempted to save memory before loading it")
+            return False
+        
+        if not self._dirty:
+            logger.debug("Memory not dirty, skipping save")
             return True
-
+        
         try:
-            logger.info(f"Saving memory for user {self.user_id}")
-            # Update timestamp before saving
-            self._memory_cache["last_updated"] = datetime.datetime.utcnow().isoformat()
-
-            result = (
-                await self.db.table("user_memories")
-                .upsert(
-                    {
-                        "user_id": self.user_id,
-                        "memory_data": self._memory_cache,
-                        "updated_at": datetime.datetime.utcnow().isoformat(),
-                    }
-                )
-                .execute()
-            )
-
-            if result.data:
-                self._is_dirty = False
-                logger.info(f"Successfully saved memory for user {self.user_id}")
-                return True
-            else:
-                logger.error(f"Failed to save memory for user {self.user_id}")
-                return False
-
-        except Exception as e:
-            logger.error(
-                f"Error saving memory for user {self.user_id}: {e}", exc_info=True
-            )
-            return False
-
-    async def add_interaction(
-        self, interaction_type: str, data: Dict[str, Any]
-    ) -> bool:
-        """Record a new user interaction in memory."""
-        if not self._is_loaded and not await self.load():
-            return False
-
-        try:
-            # Add to in-memory cache
-            timestamp = datetime.datetime.utcnow().isoformat()
-            interaction = {
-                "type": interaction_type,
-                "timestamp": timestamp,
-                "data": data,
-            }
-
-            if "interactions" not in self._memory_cache:
-                self._memory_cache["interactions"] = []
-
-            self._memory_cache["interactions"].append(interaction)
-            self._is_dirty = True
-
-            # Also store in detailed interaction history table
-            await self.db.table("user_memory_interactions").insert(
-                {
-                    "user_id": self.user_id,
-                    "interaction_type": interaction_type,
-                    "interaction_data": data,
-                    "created_at": timestamp,
-                }
-            ).execute()
-
-            # Process for potential preference learning
-            await self._extract_preferences(interaction_type, data)
-
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Update memory data
+            self.db.table('user_memories').update({
+                'memory_data': self._data,
+                'updated_at': datetime.now().isoformat()
+            }).eq('user_id', user_uuid).execute()
+            
+            logger.info(f"Saved memory for user {self.user_id}")
+            self._dirty = False
             return True
-
         except Exception as e:
-            logger.error(
-                f"Error adding interaction for user {self.user_id}: {e}", exc_info=True
-            )
+            logger.error(f"Error saving memory: {e}")
             return False
-
-    async def _extract_preferences(self, interaction_type: str, data: Dict[str, Any]):
-        """Extract and update user preferences from interaction data."""
-        try:
-            # Example preference extraction logic - customize based on interaction types
-            if interaction_type == "project_creation":
-                # Extract project type preference
-                if "project_type" in data:
-                    await self._update_preference(
-                        "preferred_project_types",
-                        data["project_type"],
-                        "project_creation",
-                    )
-
-                # Extract timeline preference
-                if "timeline" in data:
-                    await self._update_preference(
-                        "timeline_preference", data["timeline"], "project_creation"
-                    )
-
-            elif interaction_type == "contractor_selection":
-                # Extract contractor preference indicators
-                if "selected_contractor" in data and "contractor_attributes" in data:
-                    for attr, value in data["contractor_attributes"].items():
-                        await self._update_preference(
-                            f"contractor_{attr}_preference",
-                            value,
-                            "contractor_selection",
-                        )
-        except Exception as e:
-            logger.error(
-                f"Error extracting preferences for user {self.user_id}: {e}",
-                exc_info=True,
-            )
-
-    async def _update_preference(self, preference_key: str, value: Any, source: str):
-        """Update a user preference in the database and memory cache."""
-        try:
-            # Update in-memory representation
-            if "learned_preferences" not in self._memory_cache:
-                self._memory_cache["learned_preferences"] = {}
-
-            if preference_key not in self._memory_cache["learned_preferences"]:
-                self._memory_cache["learned_preferences"][preference_key] = {
-                    "value": value,
-                    "count": 1,
-                }
-            else:
-                # Simple counting-based preference strengthening
-                current = self._memory_cache["learned_preferences"][preference_key]
-                if current["value"] == value:
-                    current["count"] += 1
-                else:
-                    # Different value - handle conflict based on count
-                    if current["count"] <= 2:  # Threshold for changing preference
-                        current["value"] = value
-                        current["count"] = 1
-                    # Else keep existing preference as it's stronger
-
-            self._is_dirty = True
-
-            # Store in preferences table with confidence score
-            count = self._memory_cache["learned_preferences"][preference_key]["count"]
-            confidence = min(0.5 + (count * 0.1), 0.95)  # Simple confidence scaling
-
-            await self.db.table("user_preferences").upsert(
-                {
-                    "user_id": self.user_id,
-                    "preference_key": preference_key,
-                    "preference_value": value,
-                    "confidence": confidence,
-                    "source": source,
-                    "updated_at": datetime.datetime.utcnow().isoformat(),
-                }
-            ).execute()
-
-        except Exception as e:
-            logger.error(
-                f"Error updating preference for user {self.user_id}: {e}", exc_info=True
-            )
-
-    # Implement required Memory interface methods
-    def get(self, key: str) -> Any:
-        """Get a value from memory by key."""
-        if not self._is_loaded:
-            # Synchronous method can't await load(), so return None if not loaded
-            logger.warning(
-                f"Attempted to get key '{key}' from unloaded memory for user {self.user_id}"
-            )
-            return None
-        return self._memory_cache.get("context", {}).get(key)
-
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a value from memory.
+        
+        Args:
+            key: Key to retrieve
+            default: Default value if key doesn't exist
+            
+        Returns:
+            Value associated with the key, or default if not found
+        """
+        if not self._loaded:
+            logger.warning(f"Attempted to access memory key '{key}' before loading")
+            return default
+        
+        return self._data.get(key, default)
+    
     def set(self, key: str, value: Any) -> None:
-        """Set a value in memory by key."""
-        if not self._is_loaded:
-            logger.warning(
-                f"Attempted to set key '{key}' to unloaded memory for user {self.user_id}"
-            )
+        """Set a value in memory.
+        
+        Args:
+            key: Key to set
+            value: Value to associate with the key
+        """
+        if not self._loaded:
+            logger.warning(f"Attempted to set memory key '{key}' before loading")
             return
-
-        if "context" not in self._memory_cache:
-            self._memory_cache["context"] = {}
-
-        self._memory_cache["context"][key] = value
-        self._is_dirty = True
-
-    def get_recent_interactions(
-        self, interaction_type: Optional[str] = None, limit: int = 10
-    ) -> List[Dict]:
-        """Get recent user interactions, optionally filtered by type."""
-        if not self._is_loaded:
+        
+        self._data[key] = value
+        self._dirty = True
+    
+    def delete(self, key: str) -> bool:
+        """Delete a key from memory.
+        
+        Args:
+            key: Key to delete
+            
+        Returns:
+            bool: True if key was deleted, False if key wasn't found
+        """
+        if not self._loaded:
+            logger.warning(f"Attempted to delete memory key '{key}' before loading")
+            return False
+        
+        if key in self._data:
+            del self._data[key]
+            self._dirty = True
+            return True
+        return False
+    
+    async def add_interaction(self, interaction_type: str, data: Dict[str, Any]) -> bool:
+        """Record a user interaction.
+        
+        Args:
+            interaction_type: Type of interaction (e.g., "project_creation", "conversation")
+            data: Data associated with the interaction
+            
+        Returns:
+            bool: True if interaction was recorded successfully, False otherwise
+        """
+        try:
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Record interaction
+            interaction = {
+                'user_id': user_uuid,
+                'interaction_type': interaction_type,
+                'interaction_data': data
+            }
+            self.db.table('user_memory_interactions').insert(interaction).execute()
+            logger.info(f"Recorded {interaction_type} interaction for user {self.user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error recording interaction: {e}")
+            return False
+    
+    def get_recent_interactions(self, interaction_type: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get recent interactions.
+        
+        Args:
+            interaction_type: Optional filter by interaction type
+            limit: Maximum number of interactions to return
+            
+        Returns:
+            List of recent interactions with timestamps
+        """
+        try:
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Build query
+            query = self.db.table('user_memory_interactions').select('*').eq('user_id', user_uuid)
+            
+            if interaction_type:
+                query = query.eq('interaction_type', interaction_type)
+            
+            # Execute query with limit and order by created_at
+            response = query.order('created_at', desc=True).limit(limit).execute()
+            
+            # Format interactions for return
+            interactions = []
+            for item in response.data:
+                interactions.append({
+                    'type': item['interaction_type'],
+                    'data': item['interaction_data'],
+                    'timestamp': item['created_at']
+                })
+            
+            return interactions
+        except Exception as e:
+            logger.error(f"Error retrieving interactions: {e}")
             return []
-
-        interactions = self._memory_cache.get("interactions", [])
-
-        if interaction_type:
-            interactions = [i for i in interactions if i["type"] == interaction_type]
-
-        # Sort by timestamp (newest first) and limit
-        return sorted(interactions, key=lambda x: x["timestamp"], reverse=True)[:limit]
-
-    def get_preference(self, preference_key: str) -> Any:
-        """Get a learned user preference."""
-        if not self._is_loaded:
-            return None
-
-        prefs = self._memory_cache.get("learned_preferences", {})
-        if preference_key in prefs:
-            return prefs[preference_key]["value"]
-        return None
-
-    def get_all_preferences(self) -> Dict[str, Any]:
-        """Get all learned preferences with their values."""
-        if not self._is_loaded:
+    
+    async def set_preference(self, key: str, value: Any, confidence: float = 0.5, source: str = "extraction") -> bool:
+        """Set or update a user preference.
+        
+        Args:
+            key: Preference key (e.g., "preferred_project_types")
+            value: Preference value (will be stored as JSON)
+            confidence: Confidence score (0-1) for the preference
+            source: Source of the preference (e.g., "project_creation")
+            
+        Returns:
+            bool: True if preference was set successfully, False otherwise
+        """
+        try:
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Check if preference exists
+            response = self.db.table('user_preferences').select('*').eq('user_id', user_uuid).eq('preference_key', key).execute()
+            
+            if response.data and len(response.data) > 0:
+                # Update existing preference
+                pref_id = response.data[0]['id']
+                self.db.table('user_preferences').update({
+                    'preference_value': value,
+                    'confidence': max(0.0, min(1.0, confidence)),  # Clamp to [0, 1]
+                    'source': source,
+                    'updated_at': datetime.now().isoformat()
+                }).eq('id', pref_id).execute()
+            else:
+                # Create new preference
+                preference = {
+                    'user_id': user_uuid,
+                    'preference_key': key,
+                    'preference_value': value,
+                    'confidence': max(0.0, min(1.0, confidence)),  # Clamp to [0, 1]
+                    'source': source
+                }
+                self.db.table('user_preferences').insert(preference).execute()
+            
+            logger.info(f"Set preference '{key}' for user {self.user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting preference: {e}")
+            return False
+    
+    def get_preference(self, key: str, default: Any = None) -> Any:
+        """Get a user preference.
+        
+        Args:
+            key: Preference key to retrieve
+            default: Default value if preference doesn't exist
+            
+        Returns:
+            The preference value, or default if not found
+        """
+        try:
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Get preference
+            response = self.db.table('user_preferences').select('*').eq('user_id', user_uuid).eq('preference_key', key).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]['preference_value']
+            return default
+        except Exception as e:
+            logger.error(f"Error retrieving preference: {e}")
+            return default
+    
+    def get_all_preferences(self, min_confidence: float = 0.0) -> Dict[str, Any]:
+        """Get all user preferences with confidence above threshold.
+        
+        Args:
+            min_confidence: Minimum confidence threshold (0-1)
+            
+        Returns:
+            Dictionary of preference key-value pairs
+        """
+        try:
+            # Convert string user_id to UUID if needed
+            user_uuid = self._ensure_uuid(self.user_id)
+            
+            # Get preferences with confidence filter
+            response = self.db.table('user_preferences').select('*').eq('user_id', user_uuid).gte('confidence', min_confidence).execute()
+            
+            preferences = {}
+            for pref in response.data:
+                preferences[pref['preference_key']] = pref['preference_value']
+            
+            return preferences
+        except Exception as e:
+            logger.error(f"Error retrieving preferences: {e}")
             return {}
-
-        prefs = self._memory_cache.get("learned_preferences", {})
-        return {k: v["value"] for k, v in prefs.items()}
+    
+    def _ensure_uuid(self, user_id: Union[str, uuid.UUID]) -> uuid.UUID:
+        """Ensure that the user_id is a proper UUID.
+        
+        Args:
+            user_id: User ID as string or UUID
+            
+        Returns:
+            UUID object for the user ID
+        """
+        if isinstance(user_id, uuid.UUID):
+            return user_id
+        
+        try:
+            return uuid.UUID(str(user_id))
+        except ValueError:
+            # If the user_id is not a valid UUID, log an error and use a default UUID
+            logger.error(f"Invalid UUID format for user_id: {user_id}. Using a default UUID.")
+            # Generate a deterministic UUID based on the string
+            return uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id))

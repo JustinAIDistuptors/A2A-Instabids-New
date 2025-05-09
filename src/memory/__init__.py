@@ -2,3 +2,4 @@
 
 # Expose the persistent memory implementation
 from .persistent_memory import PersistentMemory
+from .conversation_state import ConversationState
