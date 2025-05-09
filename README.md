@@ -1,121 +1,91 @@
-# InstaBids Google ADK
+# InstaBids - BidCard Memory Integration
 
-This repository contains InstaBids' implementation of the Google Agent Development Kit (ADK).
+This branch integrates the BidCard v2 feature with the Persistent Memory functionality to provide enhanced user experiences through preference-based personalization.
 
 ## Features
 
-### Memory Persistence and Slot Filling Integration
+- Personalized BidCard generation using user preferences
+- Tracking of user interactions with BidCards
+- Preference learning from BidCard creation and updates
+- Enhanced API endpoints with memory integration
+- Comprehensive test suite
 
-The latest version includes memory persistence with Supabase, which enables maintaining user context across conversations:
+## Key Components
 
-- User preferences are automatically learned and stored in the database
-- Conversation history is preserved for better context understanding
-- Multi-modal inputs (text, images) are integrated in the memory model
-- Slot filling framework for structured data collection with persistence
+- `memory/bidcard_memory_integration.py` - Core integration module
+- `instabids/agents/bidcard_agent.py` - Enhanced BidCard agent with memory
+- `instabids/api/routes/bidcard.py` - Memory-integrated API routes
 
-For more details, see the [Memory Integration Guide](docs/memory_integration.md).
+## Database Requirements
 
-### Vision 2.0 Integration
+This integration uses the memory schema which includes:
 
-Includes Vision 2.0 integration, which enhances the platform with image analysis capabilities:
+- `user_memories` - Primary memory storage
+- `user_preferences` - User preferences with confidence scores
+- `user_memory_interactions` - Detailed interaction history
 
-- Image analysis using OpenAI's GPT-4o Vision API
-- Automatic extraction of project details from images
-- Enhanced slot filling with vision-derived information
-- Damage assessment detection and categorization
+Make sure these tables exist in your Supabase database before deploying.
 
-For more details, see the [Vision Integration Guide](docs/vision_integration.md).
+## Getting Started
 
-## Vendor Namespace Approach
+1. Clone the repository
+2. Create a `.env` file with Supabase credentials
+3. Install dependencies: `pip install -e .`
+4. Run tests: `pytest tests/unit/test_bidcard_memory_integration.py`
 
-This package uses a vendor namespace approach (`instabids_google.adk`) instead of `google.adk` to avoid namespace collisions with existing Google packages in the Python environment.
+## Architecture
 
-### Why a Vendor Namespace?
+The memory integration follows a layered approach:
 
-Using a vendor namespace has several advantages:
-- Avoids conflicts with existing Google packages
-- Clearly indicates that this is InstaBids' implementation of the ADK
-- Works reliably in all environments, regardless of what other packages are installed
+1. **Core Memory Layer**: `PersistentMemory` class for CRUD operations on memory
+2. **Integration Layer**: `bidcard_memory_integration.py` bridging BidCard and memory
+3. **Application Layer**: Enhanced BidCard agent and API routes
 
-## Installation
+## Usage Examples
 
-```bash
-# Install from the repository
-pip install -e .
-```
-
-## Environment Setup
-
-To use the vision integration features, you need to set up your OpenAI API key:
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
-```
-
-To use the memory persistence features, set up your Supabase credentials:
-
-```bash
-export SUPABASE_URL=your_supabase_url
-export SUPABASE_SERVICE_ROLE=your_supabase_service_role_key
-```
-
-## Usage
-
-### Basic Agent
+### Creating a BidCard with Memory
 
 ```python
-# Import the LlmAgent class
-from instabids_google.adk import LlmAgent
+from memory.bidcard_memory_integration import create_bid_card_with_memory
+from memory.persistent_memory import PersistentMemory
 
-# Create an agent
-agent = LlmAgent("MyAgent", system_prompt="You are a helpful assistant.")
+# Initialize memory
+memory = PersistentMemory(supabase_client, user_id)
+await memory.load()
 
-# Import tracing utilities
-from instabids_google.adk import enable_tracing
-
-# Enable tracing
-enable_tracing(output="stdout")
+# Create bid card with memory integration
+card, confidence = await create_bid_card_with_memory(
+    project_data, 
+    vision_data, 
+    memory, 
+    user_id
+)
 ```
 
-### Memory-Enabled Homeowner Agent
+### Using Preferences
 
 ```python
-from supabase import create_client
-from src.agents.homeowner_agent import HomeownerAgent
+# Get user preferences
+preferences = memory.get_all_preferences()
 
-# Create a Supabase client
-supabase = create_client("SUPABASE_URL", "SUPABASE_SERVICE_ROLE")
-
-# Create the homeowner agent with memory persistence
-agent = HomeownerAgent(supabase)
-
-# The agent will automatically use persistent memory for slot filling
-response = await agent.handle(message, handler)
-print(response.text)
-```
-
-## Demo Applications
-
-To test the memory and vision integration features:
-
-```bash
-python examples/memory_slot_filler_demo.py
+# Check for specific preference
+preferred_category = memory.get_preference("preferred_project_categories")
+if preferred_category:
+    print(f"User prefers {preferred_category} projects")
 ```
 
 ## Testing
 
-To verify that the package works correctly, run:
+- Unit tests: `pytest tests/unit/test_bidcard_memory_integration.py`
+- Integration tests: `pytest tests/integration/test_bidcard_memory_integration_e2e.py`
 
-```bash
-python -m pytest tests/unit
-python -m pytest tests/integration
-```
+## Documentation
 
-To test specific modules:
+For detailed information about the integration architecture and implementation, see the [BidCard Memory Integration](docs/bidcard_memory_integration.md) documentation.
 
-```bash
-python -m pytest tests/test_memory/test_persistent_memory.py
-python -m pytest tests/test_memory/test_conversation_state.py
-python -m pytest tests/test_slot_filler/test_slot_filler_factory.py
-python -m pytest tests/test_agents/test_memory_enabled_agent.py
-```
+## Future Enhancements
+
+- Multi-modal memory integration for vision, text, and voice
+- Advanced preference learning algorithms
+- Time-decay for preference confidence
+- Cross-project preference analysis
