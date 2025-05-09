@@ -1,169 +1,190 @@
-"""Base class for agents with integrated memory and slot filling capabilities."""
+#!/usr/bin/env python
+"""
+Base agent class with memory and slot filling capabilities.
+
+This module provides a base agent class that integrates persistent memory and slot filling.
+"""
 
 import logging
-from typing import Dict, Any, List, Optional, Callable
-import asyncio
+import uuid
+from typing import Any, Dict, List, Optional, Set, Callable, Tuple, Union
 
-from supabase import Client
-from google.adk.conversation import Agent, Response, Message, ConversationHandler
+from google.adk.conversation import Message, Response
 
-from src.memory.persistent_memory import PersistentMemory
-from src.slot_filler.slot_filler_factory import SlotFillerFactory, SlotFiller
+from ..memory.persistent_memory import PersistentMemory
+from ..slot_filler.slot_filler_factory import SlotFillerFactory, SlotFiller
 
+# Set up logging
 logger = logging.getLogger(__name__)
 
 
-class MemoryEnabledAgent(Agent):
-    """Base agent class with integrated persistent memory and slot filling."""
-
-    def __init__(self, db: Client):
-        """Initialize with database connection."""
-        super().__init__()
+class MemoryEnabledAgent:
+    """Base agent class with memory and slot filling capabilities.
+    
+    This class provides a foundation for building agents that use persistent memory
+    and slot filling to maintain context across conversations.
+    """
+    
+    def __init__(self, db):
+        """Initialize agent.
+        
+        Args:
+            db: Database client (Supabase)
+        """
         self.db = db
-        self._memory_instances: Dict[str, PersistentMemory] = {}
-        self._slot_filler_instances: Dict[str, SlotFiller] = {}
-        self._slot_filler_factory = None
-
-    async def _ensure_memory(self, user_id: str) -> PersistentMemory:
-        """Ensure a memory instance exists for the user and return it."""
-        if user_id not in self._memory_instances:
+        self._memories = {}  # Cache of PersistentMemory instances by user_id
+        self._slot_filler_factories = {}  # Cache of SlotFillerFactory instances by user_id
+    
+    async def process_message(self, message: Message) -> Response:
+        """Process an incoming message.
+        
+        Args:
+            message: Input message from A2A
+            
+        Returns:
+            Response: Agent response
+        """
+        user_id = message.get_user_id()
+        conversation_id = message.get_conversation_id()
+        
+        if not user_id:
+            # Generate a temporary user ID if none is provided
+            user_id = str(uuid.uuid4())
+            logger.warning(f"No user ID provided, using temporary ID: {user_id}")
+        
+        if not conversation_id:
+            # Generate a temporary conversation ID if none is provided
+            conversation_id = str(uuid.uuid4())
+            logger.warning(f"No conversation ID provided, using temporary ID: {conversation_id}")
+        
+        # Process message with memory
+        response_text = await self._process_message_with_memory(
+            message=message,
+            user_id=user_id,
+            conversation_id=conversation_id
+        )
+        
+        # Create response
+        return Response(text=response_text)
+    
+    async def _get_memory(self, user_id: str) -> PersistentMemory:
+        """Get or create a memory instance for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            PersistentMemory instance
+        """
+        if user_id not in self._memories:
             memory = PersistentMemory(self.db, user_id)
             await memory.load()
-            self._memory_instances[user_id] = memory
-        return self._memory_instances[user_id]
-
-    async def _ensure_slot_filler_factory(self, user_id: str) -> SlotFillerFactory:
-        """Ensure a slot filler factory exists for the user and return it."""
-        if self._slot_filler_factory is None:
-            memory = await self._ensure_memory(user_id)
-            self._slot_filler_factory = SlotFillerFactory(memory)
-        return self._slot_filler_factory
-
-    async def _get_or_create_slot_filler(
-        self, user_id: str, conversation_id: str, required_slots: List[str], optional_slots: Optional[List[str]] = None
-    ) -> SlotFiller:
-        """Get an existing slot filler or create a new one."""
-        key = f"{user_id}:{conversation_id}"
-        if key not in self._slot_filler_instances:
-            factory = await self._ensure_slot_filler_factory(user_id)
-            slot_filler = await factory.create_slot_filler(conversation_id, required_slots, optional_slots)
-            self._slot_filler_instances[key] = slot_filler
-        return self._slot_filler_instances[key]
-
-    async def handle(self, message: Message, handler: ConversationHandler) -> Response:
-        """Handle an incoming message with memory and slot filling capabilities."""
-        user_id = message.sender_id or "anonymous"
-        conversation_id = message.conversation_id or "default"
-
-        # Ensure memory is loaded for this user
-        memory = await self._ensure_memory(user_id)
+            self._memories[user_id] = memory
+        return self._memories[user_id]
+    
+    async def _get_slot_filler_factory(self, user_id: str) -> SlotFillerFactory:
+        """Get or create a slot filler factory for a user.
         
-        # Process the message and generate a response
-        try:
-            response_text = await self._process_message_with_memory(message, user_id, conversation_id)
-            response = Response(text=response_text)
+        Args:
+            user_id: User ID
             
-            # Record the interaction in memory
-            await memory.add_interaction(
-                "conversation",
-                {
-                    "user_message": message.text,
-                    "agent_response": response_text,
-                    "conversation_id": conversation_id,
-                    "has_attachments": bool(message.attachments)
-                }
-            )
-            
-            return response
-        except Exception as e:
-            logger.error(f"Error handling message: {e}", exc_info=True)
-            await memory.add_interaction(
-                "error",
-                {
-                    "error_type": str(type(e)),
-                    "error_message": str(e),
-                    "user_message": message.text,
-                    "conversation_id": conversation_id
-                }
-            )
-            return Response(text="I'm sorry, I encountered an error processing your message. Please try again.")
-
-    async def _process_message_with_memory(self, message: Message, user_id: str, conversation_id: str) -> str:
-        """Process a message using memory and slot filling.
-        
-        Override this method in derived classes to implement specific agent logic.
+        Returns:
+            SlotFillerFactory instance
         """
-        raise NotImplementedError("Subclasses must implement this method")
-
+        if user_id not in self._slot_filler_factories:
+            memory = await self._get_memory(user_id)
+            self._slot_filler_factories[user_id] = SlotFillerFactory(memory)
+        return self._slot_filler_factories[user_id]
+    
+    async def _process_message_with_memory(self, message: Message, user_id: str, conversation_id: str) -> str:
+        """Process a message with memory integration.
+        
+        This method should be overridden by subclasses to implement agent-specific logic.
+        
+        Args:
+            message: Input message
+            user_id: User ID
+            conversation_id: Conversation ID
+            
+        Returns:
+            str: Response text
+        """
+        # Default implementation just echoes the message
+        text = message.get_text() or "No text provided"
+        return f"Received: {text}"
+    
     async def _process_with_slot_filling(
         self,
         message: Message,
         user_id: str,
         conversation_id: str,
         required_slots: List[str],
-        optional_slots: Optional[List[str]] = None,
-        text_extractors: Optional[Dict[str, Callable]] = None,
-        vision_extractors: Optional[Dict[str, Callable]] = None,
-        slot_filled_handler: Optional[Callable] = None
+        optional_slots: List[str],
+        text_extractors: Dict[str, Callable[[str], Optional[Any]]],
+        vision_extractors: Optional[Dict[str, Callable[[Dict[str, Any]], Optional[Any]]]] = None
     ) -> Dict[str, Any]:
         """Process a message with slot filling.
         
         Args:
-            message: The incoming message
-            user_id: ID of the user
-            conversation_id: ID of the conversation
+            message: Input message
+            user_id: User ID
+            conversation_id: Conversation ID
             required_slots: List of required slot names
-            optional_slots: Optional list of optional slot names
-            text_extractors: Optional dict mapping slot names to text extractor functions
-            vision_extractors: Optional dict mapping slot names to vision extractor functions
-            slot_filled_handler: Optional function called when all required slots are filled
+            optional_slots: List of optional slot names
+            text_extractors: Dictionary mapping slot names to text extractor functions
+            vision_extractors: Optional dictionary mapping slot names to vision extractor functions
             
         Returns:
-            Dictionary with slot filling results
+            Dict containing slot filling results and state
         """
-        # Get or create slot filler
-        slot_filler = await self._get_or_create_slot_filler(
-            user_id, conversation_id, required_slots, optional_slots
-        )
+        factory = await self._get_slot_filler_factory(user_id)
+        slot_filler = await factory.create_slot_filler(conversation_id, required_slots, optional_slots)
+        
+        # Get message text
+        text = message.get_text() or ""
         
         # Update conversation history
-        await slot_filler.update_from_message("user", message.text, message.attachments)
+        await slot_filler.update_from_message("user", text)
         
         # Extract slots from text
-        extracted_from_text = {}
-        if message.text and text_extractors:
-            extracted_from_text = await slot_filler.extract_slots_from_message(
-                message.text, text_extractors
-            )
+        extracted_from_text = await slot_filler.extract_slots_from_message(text, text_extractors)
         
-        # Extract slots from images/attachments
+        # Process vision inputs if provided
         extracted_from_vision = {}
-        if message.attachments and vision_extractors:
-            for attachment in message.attachments:
-                if attachment.get("type") == "image":
-                    vision_results = await slot_filler.process_vision_inputs(
-                        attachment, vision_extractors
-                    )
+        if vision_extractors and message.has_media():
+            for media_item in message.get_media() or []:
+                try:
+                    media_data = {
+                        "id": media_item.get("id", str(uuid.uuid4())),
+                        "url": media_item.get("url", ""),
+                        "metadata": media_item.get("metadata", {})
+                    }
+                    vision_results = await slot_filler.process_vision_inputs(media_data, vision_extractors)
                     extracted_from_vision.update(vision_results)
+                except Exception as e:
+                    logger.error(f"Error processing vision input: {e}")
         
-        # Check if all required slots are filled
-        all_filled = slot_filler.all_required_slots_filled()
+        # Get slot filling results
+        filled_slots = slot_filler.get_filled_slots()
+        missing_slots = list(slot_filler.get_missing_required_slots())
+        all_required_filled = slot_filler.all_required_slots_filled()
         
-        # Call handler if all slots are filled and handler is provided
-        if all_filled and slot_filled_handler is not None:
-            try:
-                await slot_filled_handler(slot_filler)
-            except Exception as e:
-                logger.error(f"Error in slot filled handler: {e}", exc_info=True)
-        
-        # Prepare result
-        result = {
-            "all_required_slots_filled": all_filled,
-            "missing_slots": slot_filler.get_missing_required_slots(),
-            "filled_slots": slot_filler.get_filled_slots(),
+        # Return slot filling results and state
+        return {
+            "filled_slots": filled_slots,
+            "missing_slots": missing_slots,
+            "all_required_slots_filled": all_required_filled,
             "extracted_from_text": extracted_from_text,
             "extracted_from_vision": extracted_from_vision,
             "slot_filler": slot_filler
         }
         
-        return result
+    async def _update_conversation(self, slot_filler: SlotFiller, role: str, content: str) -> None:
+        """Update conversation with a new message.
+        
+        Args:
+            slot_filler: SlotFiller instance
+            role: Role of the sender (e.g., "user", "assistant")
+            content: Message content
+        """
+        await slot_filler.update_from_message(role, content)

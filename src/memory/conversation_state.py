@@ -1,1 +1,177 @@
-"""\nConversationState implementation for tracking conversation context and slot values.\n"""\n\nimport logging\nfrom typing import Dict, List, Any, Optional, Set\nimport datetime\nimport json\nfrom collections import defaultdict\n\nfrom .persistent_memory import PersistentMemory\n\nlogger = logging.getLogger(__name__)\n\n\nclass ConversationState:\n    """\n    Tracks and manages conversation state, including filled slots\n    and conversation history. Integrates with PersistentMemory for\n    long-term storage.\n    """\n\n    def __init__(self, memory: PersistentMemory, conversation_id: str):\n        """\n        Initialize the conversation state tracker.\n        \n        Args:\n            memory: PersistentMemory instance for storage\n            conversation_id: Unique identifier for this conversation\n        """\n        self.memory = memory\n        self.conversation_id = conversation_id\n        self._slots: Dict[str, Any] = {}\n        self._history: List[Dict[str, Any]] = []\n        self._required_slots: Set[str] = set()\n        self._optional_slots: Set[str] = set()\n        self._is_loaded = False\n        self._is_dirty = False\n        self._multi_modal_context = {}  # Store references to images, videos, etc.\n        \n    async def load(self) -> bool:\n        """Load conversation state from persistent memory."""\n        if self._is_loaded:\n            return True\n            \n        try:\n            # Try to load existing conversation state\n            state_key = f"conversation_state_{self.conversation_id}"\n            state_data = self.memory.get(state_key)\n            \n            if state_data:\n                self._slots = state_data.get("slots", {})\n                self._history = state_data.get("history", [])\n                self._required_slots = set(state_data.get("required_slots", []))\n                self._optional_slots = set(state_data.get("optional_slots", []))\n                self._multi_modal_context = state_data.get("multi_modal_context", {})\n                self._is_loaded = True\n                logger.info(f"Loaded conversation state for {self.conversation_id}")\n                return True\n            else:\n                # Initialize new conversation state\n                self._slots = {}\n                self._history = []\n                self._required_slots = set()\n                self._optional_slots = set()\n                self._multi_modal_context = {}\n                self._is_loaded = True\n                self._is_dirty = True\n                await self.save()\n                logger.info(f"Created new conversation state for {self.conversation_id}")\n                return True\n                \n        except Exception as e:\n            logger.error(\n                f"Error loading conversation state for {self.conversation_id}: {e}",\n                exc_info=True\n            )\n            return False\n            \n    async def save(self) -> bool:\n        """Save conversation state to persistent memory."""\n        if not self._is_dirty:\n            return True\n            \n        try:\n            state_key = f"conversation_state_{self.conversation_id}"\n            state_data = {\n                "slots": self._slots,\n                "history": self._history,\n                "required_slots": list(self._required_slots),\n                "optional_slots": list(self._optional_slots),\n                "multi_modal_context": self._multi_modal_context,\n                "updated_at": datetime.datetime.utcnow().isoformat()\n            }\n            \n            self.memory.set(state_key, state_data)\n            \n            # Also add as an interaction for analytics\n            await self.memory.add_interaction(\n                "conversation_state_update",\n                {\n                    "conversation_id": self.conversation_id,\n                    "filled_slots": len(self._slots),\n                    "total_required": len(self._required_slots),\n                    "history_length": len(self._history),\n                    "has_multi_modal": bool(self._multi_modal_context)\n                }\n            )\n            \n            self._is_dirty = False\n            return True\n            \n        except Exception as e:\n            logger.error(\n                f"Error saving conversation state for {self.conversation_id}: {e}",\n                exc_info=True\n            )\n            return False\n            \n    def set_required_slots(self, slots: List[str]) -> None:\n        """\n        Set the required slots for this conversation.\n        \n        Args:\n            slots: List of slot names that must be filled\n        """\n        self._required_slots = set(slots)\n        self._is_dirty = True\n        \n    def set_optional_slots(self, slots: List[str]) -> None:\n        """\n        Set optional slots for this conversation.\n        \n        Args:\n            slots: List of optional slot names\n        """\n        self._optional_slots = set(slots)\n        self._is_dirty = True\n        \n    def set_slot(self, slot_name: str, value: Any) -> None:\n        """\n        Set a slot value.\n        \n        Args:\n            slot_name: Name of the slot to set\n            value: Value to assign to the slot\n        """\n        self._slots[slot_name] = value\n        self._is_dirty = True\n        \n    def get_slot(self, slot_name: str, default: Any = None) -> Any:\n        """\n        Get the value of a slot.\n        \n        Args:\n            slot_name: Name of the slot to retrieve\n            default: Default value if slot is not set\n            \n        Returns:\n            The slot value or default if not set\n        """\n        return self._slots.get(slot_name, default)\n        \n    def clear_slot(self, slot_name: str) -> None:\n        """\n        Clear a slot value.\n        \n        Args:\n            slot_name: Name of the slot to clear\n        """\n        if slot_name in self._slots:\n            del self._slots[slot_name]\n            self._is_dirty = True\n            \n    def clear_all_slots(self) -> None:\n        """Clear all slot values."""\n        self._slots = {}\n        self._is_dirty = True\n        \n    def has_slot(self, slot_name: str) -> bool:\n        """\n        Check if a slot is filled.\n        \n        Args:\n            slot_name: Name of the slot to check\n            \n        Returns:\n            True if the slot is filled, False otherwise\n        """\n        return slot_name in self._slots and self._slots[slot_name] is not None\n        \n    def get_filled_required_slots(self) -> Dict[str, Any]:\n        """\n        Get all filled required slots.\n        \n        Returns:\n            Dictionary of filled required slots and their values\n        """\n        return {\n            slot: self._slots[slot]\n            for slot in self._required_slots\n            if slot in self._slots\n        }\n        \n    def get_missing_required_slots(self) -> List[str]:\n        """\n        Get list of required slots that haven't been filled.\n        \n        Returns:\n            List of unfilled required slot names\n        """\n        return [slot for slot in self._required_slots if slot not in self._slots]\n        \n    def all_required_slots_filled(self) -> bool:\n        """\n        Check if all required slots are filled.\n        \n        Returns:\n            True if all required slots are filled, False otherwise\n        """\n        return all(slot in self._slots for slot in self._required_slots)\n        \n    def add_to_history(self, role: str, content: str, \n                      attachments: Optional[List[Dict]] = None) -> None:\n        """\n        Add a message to conversation history.\n        \n        Args:\n            role: Role of the speaker ('user', 'assistant', etc.)\n            content: Text content of the message\n            attachments: Optional list of attachments (images, etc.)\n        """\n        timestamp = datetime.datetime.utcnow().isoformat()\n        \n        entry = {\n            "role": role,\n            "content": content,\n            "timestamp": timestamp\n        }\n        \n        if attachments:\n            entry["attachments"] = attachments\n            \n            # Update multi-modal context with any media\n            for attachment in attachments:\n                if attachment.get("type") in ["image", "video", "audio"]:\n                    attachment_id = attachment.get("id", str(len(self._multi_modal_context)))\n                    self._multi_modal_context[attachment_id] = {\n                        "type": attachment.get("type"),\n                        "url": attachment.get("url"),\n                        "timestamp": timestamp,\n                        "metadata": attachment.get("metadata", {})\n                    }\n        \n        self._history.append(entry)\n        self._is_dirty = True\n        \n    def get_history(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:\n        """\n        Get conversation history.\n        \n        Args:\n            limit: Optional limit on number of history items to return\n            \n        Returns:\n            List of conversation history entries (most recent first)\n        """\n        if limit:\n            return self._history[-limit:]\n        return self._history\n        \n    def get_history_as_messages(self, limit: Optional[int] = None) -> List[Dict[str, str]]:\n        """\n        Get conversation history formatted for LLM context.\n        \n        Args:\n            limit: Optional limit on number of history items to return\n            \n        Returns:\n            List of {"role": role, "content": content} dictionaries\n        """\n        history = self.get_history(limit)\n        return [{"role": msg["role"], "content": msg["content"]} for msg in history]\n        \n    def clear_history(self) -> None:\n        """Clear conversation history."""\n        self._history = []\n        self._is_dirty = True\n        \n    def get_multi_modal_context(self) -> Dict[str, Any]:\n        """\n        Get multi-modal context (images, videos, etc.) from the conversation.\n        \n        Returns:\n            Dictionary of multi-modal content referenced in the conversation\n        """\n        return self._multi_modal_context\n        \n    def add_multi_modal_context(self, content_id: str, content_type: str, \n                               url: str, metadata: Optional[Dict] = None) -> None:\n        """\n        Add multi-modal content to the conversation context.\n        \n        Args:\n            content_id: Unique identifier for the content\n            content_type: Type of content ('image', 'video', 'audio', etc.)\n            url: URL or path to the content\n            metadata: Optional metadata dictionary (dimensions, etc.)\n        """\n        self._multi_modal_context[content_id] = {\n            "type": content_type,\n            "url": url,\n            "timestamp": datetime.datetime.utcnow().isoformat(),\n            "metadata": metadata or {}\n        }\n        self._is_dirty = True\n        \n    def get_all_slots(self) -> Dict[str, Any]:\n        """\n        Get all filled slots.\n        \n        Returns:\n            Dictionary of all filled slots and their values\n        """\n        return self._slots.copy()\n        \n    def get_state_summary(self) -> Dict[str, Any]:\n        """\n        Get a summary of the current conversation state.\n        \n        Returns:\n            Dictionary with state summary\n        """\n        return {\n            "conversation_id": self.conversation_id,\n            "required_slots": list(self._required_slots),\n            "optional_slots": list(self._optional_slots),\n            "filled_slots": len(self._slots),\n            "missing_required": self.get_missing_required_slots(),\n            "history_length": len(self._history),\n            "multi_modal_context_count": len(self._multi_modal_context),\n            "all_required_filled": self.all_required_slots_filled()\n        }
+#!/usr/bin/env python
+"""
+Conversation state management with persistent memory support.
+
+This module handles conversation state tracking, including multi-modal inputs and slot filling.
+"""
+
+import logging
+import uuid
+from typing import Any, Dict, List, Optional, Set
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+
+class ConversationState:
+    """Manages the state of a conversation with memory persistence.
+    
+    Tracks conversation history, filled slots, and multi-modal contexts.
+    """
+    
+    def __init__(self, conversation_id: str):
+        """Initialize conversation state.
+        
+        Args:
+            conversation_id: Unique identifier for the conversation
+        """
+        self.conversation_id = conversation_id
+        self.history = []
+        self.slots = {}
+        self.required_slots = set()
+        self.optional_slots = set()
+        self.multi_modal_context = {}
+    
+    def add_message(self, role: str, content: str) -> None:
+        """Add a message to the conversation history.
+        
+        Args:
+            role: Role of the sender (e.g., "user", "assistant")
+            content: Message content
+        """
+        self.history.append({
+            "role": role,
+            "content": content,
+            "timestamp": None  # Will be filled when persisted
+        })
+    
+    def add_multi_modal_input(self, input_id: str, input_type: str, data: Dict[str, Any]) -> None:
+        """Add a multi-modal input to the conversation context.
+        
+        Args:
+            input_id: Unique identifier for the input
+            input_type: Type of input (e.g., "image", "audio")
+            data: Input data including URL, metadata, etc.
+        """
+        self.multi_modal_context[input_id] = {
+            "type": input_type,
+            "data": data
+        }
+    
+    def set_required_slots(self, slots: List[str]) -> None:
+        """Set the required slots for this conversation.
+        
+        Args:
+            slots: List of required slot names
+        """
+        self.required_slots = set(slots)
+    
+    def set_optional_slots(self, slots: List[str]) -> None:
+        """Set the optional slots for this conversation.
+        
+        Args:
+            slots: List of optional slot names
+        """
+        self.optional_slots = set(slots)
+    
+    def set_slot(self, slot_name: str, value: Any) -> bool:
+        """Set a slot value.
+        
+        Args:
+            slot_name: Name of the slot
+            value: Value to assign to the slot
+            
+        Returns:
+            bool: True if this is a valid slot, False otherwise
+        """
+        if slot_name in self.required_slots or slot_name in self.optional_slots:
+            self.slots[slot_name] = value
+            return True
+        else:
+            logger.warning(f"Attempted to set unknown slot '{slot_name}'")
+            return False
+    
+    def get_slot(self, slot_name: str, default: Any = None) -> Any:
+        """Get a slot value.
+        
+        Args:
+            slot_name: Name of the slot
+            default: Default value if slot is not filled
+            
+        Returns:
+            Slot value or default
+        """
+        return self.slots.get(slot_name, default)
+    
+    def get_all_slots(self) -> Dict[str, Any]:
+        """Get all filled slots.
+        
+        Returns:
+            Dictionary of all filled slots
+        """
+        return self.slots.copy()
+    
+    def get_missing_required_slots(self) -> Set[str]:
+        """Get the set of required slots that haven't been filled.
+        
+        Returns:
+            Set of missing required slot names
+        """
+        return self.required_slots - set(self.slots.keys())
+    
+    def all_required_slots_filled(self) -> bool:
+        """Check if all required slots are filled.
+        
+        Returns:
+            bool: True if all required slots are filled, False otherwise
+        """
+        return len(self.get_missing_required_slots()) == 0
+    
+    def get_history(self) -> List[Dict[str, Any]]:
+        """Get the conversation history.
+        
+        Returns:
+            List of messages in the conversation
+        """
+        return self.history.copy()
+    
+    def get_multi_modal_context(self) -> Dict[str, Dict[str, Any]]:
+        """Get the multi-modal context data.
+        
+        Returns:
+            Dictionary of multi-modal inputs
+        """
+        return self.multi_modal_context.copy()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert state to dictionary for persistence.
+        
+        Returns:
+            Dictionary representation of the state
+        """
+        return {
+            "conversation_id": self.conversation_id,
+            "history": self.history,
+            "slots": self.slots,
+            "required_slots": list(self.required_slots),
+            "optional_slots": list(self.optional_slots),
+            "multi_modal_context": self.multi_modal_context
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ConversationState':
+        """Create state from dictionary.
+        
+        Args:
+            data: Dictionary representation of state
+            
+        Returns:
+            ConversationState instance
+        """
+        state = cls(data.get("conversation_id", str(uuid.uuid4())))
+        state.history = data.get("history", [])
+        state.slots = data.get("slots", {})
+        state.required_slots = set(data.get("required_slots", []))
+        state.optional_slots = set(data.get("optional_slots", []))
+        state.multi_modal_context = data.get("multi_modal_context", {})
+        return state

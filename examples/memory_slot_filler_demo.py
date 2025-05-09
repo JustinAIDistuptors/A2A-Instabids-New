@@ -13,6 +13,7 @@ import argparse
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from pathlib import Path
+import uuid
 
 from supabase import create_client, Client
 
@@ -77,6 +78,14 @@ async def demo_conversation(
         logger.error(f"Failed to create Supabase client: {e}")
         return
     
+    # Ensure user_id is a valid UUID
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        user_uuid = uuid.uuid4()
+        logger.warning(f"Provided user_id '{user_id}' is not a valid UUID. Using generated UUID: {user_uuid}")
+        user_id = str(user_uuid)
+    
     # Create memory for user
     memory = PersistentMemory(db, user_id)
     await memory.load()
@@ -100,7 +109,7 @@ async def demo_conversation(
     
     # Process messages in sequence
     for role, message in messages.items():
-        print(f"\n{role.upper()}: {message}")
+        print(f"{role.upper()}: {message}")
         
         # Update conversation history
         await slot_filler.update_from_message(role, message)
@@ -114,7 +123,7 @@ async def demo_conversation(
     # Process images if provided
     if image_paths:
         for image_id, image_path in image_paths.items():
-            print(f"\nProcessing image: {image_path}")
+            print(f"Processing image: {image_path}")
             
             # In a real implementation, this would use vision APIs
             # Here we're just simulating based on the filename
@@ -172,13 +181,13 @@ async def demo_conversation(
     
     # Get conversation history
     history = slot_filler.get_history()
-    print(f"\nConversation history ({len(history)} messages):")
+    print(f"Conversation history ({len(history)} messages):")
     for i, msg in enumerate(history):
         print(f"  {i+1}. {msg['role'].upper()}: {msg['content']}")
     
     # Get recently stored interactions
     interactions = memory.get_recent_interactions(limit=3)
-    print(f"\nRecent interactions ({len(interactions)}):")
+    print(f"Recent interactions ({len(interactions)}):")
     for i, interaction in enumerate(interactions):
         print(f"  {i+1}. {interaction['type']} at {interaction['timestamp']}")
 
@@ -186,7 +195,7 @@ async def demo_conversation(
 async def main():
     """Main entry point for the demo application."""
     parser = argparse.ArgumentParser(description="Demo of memory and slot filling integration")
-    parser.add_argument("--user", type=str, default="demo-user-123", help="User ID for the demo")
+    parser.add_argument("--user", type=str, default="550e8400-e29b-41d4-a716-446655440000", help="User ID for the demo (must be a valid UUID)")
     parser.add_argument("--conversation", type=str, default="demo-conversation-123", help="Conversation ID for the demo")
     parser.add_argument("--image", type=str, help="Optional path to a sample image")
     args = parser.parse_args()
