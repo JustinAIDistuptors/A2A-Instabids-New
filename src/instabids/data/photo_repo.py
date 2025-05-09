@@ -81,7 +81,7 @@ def get_photo_meta(project_id: str, storage_path: str) -> Optional[Dict[str, Any
         "confidence": result.data[0].get("confidence")
     }
 
-def find_similar_photos(project_id: str, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+async def find_similar_photos(project_id: str, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
     """Find photos with similar embeddings using vector search.
     
     Args:
@@ -94,7 +94,7 @@ def find_similar_photos(project_id: str, embedding: List[float], limit: int = 5)
     """
     sb = get_supabase_client()
     
-    # This uses pgvector's <=> operator for cosine distance (requires the vector extension)
+    # Using SQL directly since we don't have the custom function yet
     query = f"""
     SELECT storage_path, embed <=> '{json.dumps(embedding)}' as distance
     FROM project_photos
@@ -104,14 +104,8 @@ def find_similar_photos(project_id: str, embedding: List[float], limit: int = 5)
     """
     
     try:
-        result = sb.rpc("find_similar_photos", {
-            "p_project_id": project_id,
-            "p_embedding": embedding,
-            "p_limit": limit
-        }).execute()
+        result = sb.sql(query).execute()
         return result.data
     except Exception as e:
         logger.error(f"Error finding similar photos: {e}")
-        # Fallback to direct SQL if RPC not available
-        result = sb.sql(query).execute()
-        return result.data
+        return []
