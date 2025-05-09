@@ -9,14 +9,15 @@ from google.adk.messages import UserMessage
 # Tools imports
 from instabids.tools import supabase_tools
 from instabids.tools.stt_tool import speech_to_text
-from instabids.tools.vision_tool_plus import analyse, validate_image_for_bid_card
+from instabids.tools.gemini_vision_tool import analyse as gemini_analyse
 
 # Other imports
 from instabids.a2a_comm import send_envelope
-from memory.persistent_memory import PersistentMemory
-from memory.conversation_state import ConversationState
+from instabids.memory.persistent_memory import PersistentMemory
+from instabids.memory.conversation_state import ConversationState
 import logging
 from instabids.data import project_repo as repo
+from instabids.data.photo_repo import save_photo_meta, get_photo_meta, find_similar_photos
 from .job_classifier import classify
 from .slot_filler import missing_slots, SLOTS, get_next_question, process_image_for_slots, update_card_from_images
 
@@ -36,18 +37,40 @@ SYSTEM_PROMPT = (
 
 class HomeownerAgent(LlmAgent):
     '''Concrete ADK agent with multimodal intake and memory.'''
-    def __init__(self, memory: Optional[PersistentMemory] = None):
-        super().__init__(name="HomeownerAgent", tools=[*supabase_tools], 
-                      system_prompt=SYSTEM_PROMPT, memory=memory or PersistentMemory())
+    def __init__(self, user_id: str, supabase_client=None, memory: Optional[PersistentMemory] = None):
+        self.user_id = user_id
+        self.supabase_client = supabase_client
         
-    async def gather_project_info(self, user_id: str, description: Optional[str] = None, 
-                               form_payload: Optional[Dict[str, Any]] = None, 
-                               project_id: Optional[str] = None) -> Dict[str, Any]:
+        # Initialize persistent memory
+        self.memory = memory or PersistentMemory(db=supabase_client, user_id=user_id)
+        
+        super().__init__(name="HomeownerAgent", tools=[*supabase_tools], 
+                     system_prompt=SYSTEM_PROMPT)
+        
+        # Load user preferences and prior conversations
+        self._load_user_context()
+        
+    async def _load_user_context(self):
+        '''Load user context from persistent memory'''
+        try:
+            # Initialize conversation state for this user
+            self.conversation_state = ConversationState(user_id=self.user_id)
+            
+            # Load state from persistent memory
+            await self.memory.load_state(self.conversation_state)
+            logger.info(f"Loaded context for user {self.user_id}")
+        except Exception as e:
+            logger.error(f"Error loading user context: {e}")
+            # Create new empty state if loading fails
+            self.conversation_state = ConversationState(user_id=self.user_id)
+        
+    async def gather_project_info(self, description: Optional[str] = None, 
+                             form_payload: Optional[Dict[str, Any]] = None, 
+                             project_id: Optional[str] = None) -> Dict[str, Any]:
         '''
         Gather project information through slot-filling.
         
         Args:
-            user_id: User ID for preference lookup/storage
             description: Optional initial project description
             form_payload: Optional form data
             project_id: Optional project ID for context
@@ -55,39 +78,46 @@ class HomeownerAgent(LlmAgent):
         Returns:
             Dict with project info or next question
         '''
-        # Initialize or get state
-        state_key = f"project_info:{user_id}"
-        state = self.memory.get(state_key, ConversationState())
-        
         # Add new input if provided
         if description:
-            state.add_user_input(description)
+            self.conversation_state.add_user_message(description)
+        
+        # Update project_id if provided
+        if project_id and not self.conversation_state.project_id:
+            self.conversation_state.project_id = project_id
+            
+        # Update slots from form payload if provided
+        if form_payload:
+            for key, value in form_payload.items():
+                if key in SLOTS:
+                    self.conversation_state.set_slot(key, value)
         
         # Determine next action based on state
-        if state.is_complete():
+        missing = missing_slots(self.conversation_state.slots)
+        if not missing:
             # We have all required information
+            # Save state before completing
+            await self.memory.save_state(self.conversation_state)
             return {
                 "need_more": False,
-                "project": state.get_slots()
+                "project": self.conversation_state.slots
             }
         else:
             # Need more info - determine what to ask next
-            next_slot = state.get_next_slot()
-            question = state.get_question_for_slot(next_slot)
+            next_question = get_next_question(self.conversation_state.slots)
             
             # Save state
-            self.memory.set(state_key, state)
+            await self.memory.save_state(self.conversation_state)
             
             return {
                 "need_more": True,
-                "next_slot": next_slot,
-                "question": question,
-                "project": state.get_slots()
+                "next_slot": missing[0],  # First missing slot
+                "question": next_question,
+                "project": self.conversation_state.slots
             }
             
     async def process_input(
         self, 
-        user_id: str,
         description: Optional[str] = None,
         form_payload: Optional[Dict[str, Any]] = None,
         base64_audio: Optional[str] = None,
@@ -98,7 +128,6 @@ class HomeownerAgent(LlmAgent):
         Process user input from various sources (text, audio, form).
         
         Args:
-            user_id: User ID for preference lookup/storage
             description: Optional text description
             form_payload: Optional form data
             base64_audio: Optional base64-encoded audio
@@ -114,70 +143,97 @@ class HomeownerAgent(LlmAgent):
             if transcript:
                 description = transcript
                 logger.info(f"Processed audio input: {description[:50]}...")
+                # Add to conversation history
+                self.conversation_state.add_user_message(transcript)
             else:
                 logger.warning("Audio transcription failed or was rejected")
                 return {"error": "Could not understand audio. Please try again or type your request."}
         
         # Process form input if provided
         if form_payload:
-            # Update memory with form data
-            bid_card = self.memory.get("bid_card", default={})
-            bid_card.update(form_payload)
-            self.memory.set("bid_card", bid_card)
+            # Update slots with form data
+            for key, value in form_payload.items():
+                if key in SLOTS:
+                    self.conversation_state.set_slot(key, value)
         
-        # Build bid_card dict from memory + this turn
-        bid_card = {
-            **self.memory.get("bid_card", default={}),
-            "description": description or "",
-            "user_id": user_id,
-        }
-        
-        # Process images if provided and update bid_card with extracted information
+        # Add description to conversation history if provided
+        if description:
+            self.conversation_state.add_user_message(description)
+            
+        # Process images if provided and update slots with extracted information
         if image_paths:
             try:
-                # Use the enhanced slot filler to process images
-                bid_card = await update_card_from_images(bid_card, [str(path) for path in image_paths])
+                # Process images with Gemini Vision
+                vision_context = await self._process_images(image_paths)
+                
+                # Store vision data in conversation state
+                for img_name, metadata in vision_context.items():
+                    self.conversation_state.set_vision_data(img_name, metadata)
+                
+                # Update bid card from images
+                await update_card_from_images(self.conversation_state.slots, [str(path) for path in image_paths])
+                
+                # Add images to project data
+                if "project_images" not in self.conversation_state.slots:
+                    self.conversation_state.slots["project_images"] = []
+                
+                for path in image_paths:
+                    img_path = str(path)
+                    if img_path not in self.conversation_state.slots["project_images"]:
+                        self.conversation_state.slots["project_images"].append(img_path)
                 
                 # Log processed images
                 logger.info(f"Processed {len(image_paths)} images for slot filling")
-                if "project_images" in bid_card:
-                    logger.info(f"Images added to project: {len(bid_card['project_images'])}")
                 
-                # Extract any damage assessment for later use
-                if "damage_assessment" in bid_card and bid_card["damage_assessment"]:
-                    logger.info(f"Extracted damage assessment from images: {bid_card['damage_assessment'][:50]}...")
+                # If we have project_id, save vision metadata to database
+                if project_id and vision_context:
+                    for img_name, metadata in vision_context.items():
+                        await save_photo_meta(project_id, img_name, metadata)
+                
             except Exception as e:
                 logger.error(f"Error processing images: {e}")
                 # Continue with what we have, don't fail the entire process
         
+        # Save state
+        await self.memory.save_state(self.conversation_state)
+        
         # Check if we need more information using slot filler
-        missing = missing_slots(bid_card)
+        missing = missing_slots(self.conversation_state.slots)
         if missing:
             # Use the slot filler to determine next question
-            next_question = get_next_question(bid_card)
-            self.memory.set("bid_card", bid_card)
+            next_question = get_next_question(self.conversation_state.slots)
             return {
                 "need_more": True, 
                 "follow_up": next_question,
-                "collected": {k: v for k, v in bid_card.items() if k in SLOTS and v}
+                "collected": {k: v for k, v in self.conversation_state.slots.items() if k in SLOTS and v}
             }
         
         # If we have all needed information, finalize project
         # Classify the job based on description and any extracted category from images
-        classification_input = bid_card.get("description", "")
-        if "category" in bid_card and bid_card["category"]:
-            classification_input += f" {bid_card['category']}"
-        if "job_type" in bid_card and bid_card["job_type"]:
-            classification_input += f" {bid_card['job_type']}"
+        classification_input = self.conversation_state.slots.get("description", "")
+        
+        # Add any label context from vision analysis
+        vision_labels = self.conversation_state.get_vision_labels()
+        if vision_labels:
+            classification_input += " " + " ".join(vision_labels)
+            
+        if "category" in self.conversation_state.slots and self.conversation_state.slots["category"]:
+            classification_input += f" {self.conversation_state.slots['category']}"
+        if "job_type" in self.conversation_state.slots and self.conversation_state.slots["job_type"]:
+            classification_input += f" {self.conversation_state.slots['job_type']}"
             
         classification = classify(classification_input)
         
         # Set default category if not provided
-        if not bid_card.get("category"):
-            bid_card["category"] = classification.get("category", "OTHER")
+        if not self.conversation_state.slots.get("category"):
+            self.conversation_state.slots["category"] = classification.get("category", "OTHER")
             
         # Create project in database
-        project_id = await self._create_project(bid_card)
+        project_id = await self._create_project(self.conversation_state.slots)
+        
+        # Associate this project with the conversation state
+        self.conversation_state.project_id = project_id
+        await self.memory.save_state(self.conversation_state)
         
         return {
             "need_more": False,
@@ -198,12 +254,23 @@ class HomeownerAgent(LlmAgent):
         Returns:
             Agent's response
         '''
-        # TODO: Implement answer_question
-        return "I'll need to look that up for you."
+        # Add question to conversation history
+        self.conversation_state.add_user_message(question)
+        
+        # TODO: Enhanced answer_question with memory and vision context
+        response = "I'll need to look that up for you."
+        
+        # Add response to conversation history
+        self.conversation_state.add_assistant_message(response)
+        
+        # Save conversation state
+        await self.memory.save_state(self.conversation_state)
+        
+        return response
     
     async def create_project(self, description: str, images: Optional[List[Dict[str, Any]]] = None,
-                       category: Optional[str] = None, urgency: Optional[str] = None,
-                       user_id: Optional[str] = None, vision_context: Optional[Dict[str, Any]] = None) -> str:
+                         category: Optional[str] = None, urgency: Optional[str] = None,
+                         vision_context: Optional[Dict[str, Any]] = None) -> str:
         '''Create a project in the database.'''
         # Prepare classification input with any additional context
         classification_input = description
@@ -222,7 +289,7 @@ class HomeownerAgent(LlmAgent):
         # Prepare project row
         row = {
             "description": description,
-            "homeowner_id": user_id,
+            "homeowner_id": self.user_id,
             "category": category or cls["category"],
             "confidence": cls["confidence"],
         }
@@ -231,26 +298,33 @@ class HomeownerAgent(LlmAgent):
             pid = repo.save_project(row)
             if images:
                 repo.save_project_photos(pid, images)
+                
+                # Save vision metadata for each image if available
+                if vision_context:
+                    for img_name, metadata in vision_context.items():
+                        if any(img.get("path") == img_name for img in images):
+                            await save_photo_meta(pid, img_name, metadata)
+                            
         except Exception as err:
             logger.error(f"Failed to save project: {err}")
             raise
             
-        # --- emit A2A envelope ----------------------------------
+        # --- emit A2A envelope --------------------------
         payload = {"project_id": pid, "homeowner_id": row["homeowner_id"]}
         send_envelope("project.created", payload, "homeowner_agent")
         return pid
     
-    # -------------------------------------------------------------------
+    # -------------------------------------------------------------
     # Internal helpers
-    # -------------------------------------------------------------------
+    # -------------------------------------------------------------
     async def _process_images(self, image_paths: List[Path]) -> dict[str, Any]:
         '''Process images through vision analysis and slot filling.'''
         try:
             # Convert paths to strings
             path_strings = [str(p) for p in image_paths]
             
-            # Use the enhanced slot filler's process_image_for_slots function
-            results = await asyncio.gather(*[process_image_for_slots(path) for path in path_strings])
+            # Process each image with Gemini Vision Analysis
+            results = await asyncio.gather(*[gemini_analyse(path) for path in path_strings])
             
             # Combine results
             combined_context = {}
@@ -271,12 +345,14 @@ class HomeownerAgent(LlmAgent):
         if "project_images" in bid_card:
             images = bid_card.pop("project_images")
         
-        # Extract user_id
-        user_id = bid_card.get("user_id")
+        # Extract vision context if present
+        vision_context = None
+        if hasattr(self.conversation_state, 'vision_context'):
+            vision_context = self.conversation_state.vision_context
         
         # Format project data for database
         project_data = {
-            "homeowner_id": user_id,
+            "homeowner_id": self.user_id,
             "title": bid_card.get("title", bid_card.get("description", "")[:80]),
             "description": bid_card.get("description", ""),
             "category": bid_card.get("category", "").lower(),
@@ -297,11 +373,20 @@ class HomeownerAgent(LlmAgent):
                 if images:
                     image_data = [{"path": img} for img in images] if isinstance(images[0], str) else images
                     repo.save_project_photos(pid, image_data)
+                    
+                    # Save vision metadata for each image if available
+                    if vision_context:
+                        for img_path, meta in vision_context.items():
+                            for img in image_data:
+                                if img_path == img.get("path") or img_path.endswith(img.get("path", "")):
+                                    await save_photo_meta(pid, img.get("path"), meta)
+                                    break
+                    
         except Exception as err:
             logger.error(f"Failed to save project: {err}")
             raise
             
-        # --- emit A2A envelope ----------------------------------
+        # --- emit A2A envelope -------------------------
         payload = {"project_id": pid, "homeowner_id": project_data["homeowner_id"]}
         send_envelope("project.created", payload)
         return pid
