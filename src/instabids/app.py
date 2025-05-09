@@ -34,7 +34,7 @@ async def get_task(task_id: str, token: str = Depends(verify_signature)):
     return status
 
 
-# ------ WebSocket stream for UI ------ #
+# ------- WebSocket stream for UI ------- #
 @app.websocket("/ws/bids/{task_id}")
 async def ws_bids(websocket: WebSocket, task_id: str):
     await websocket.accept()
@@ -42,7 +42,7 @@ async def ws_bids(websocket: WebSocket, task_id: str):
         await websocket.send_json(event)
 
 
-# ------ Internal async workflow ------ #
+# ------- Internal async workflow ------- #
 async def run_homeowner_flow(task_id: str, payload: dict):
     agent = get_homeowner_agent()
     await create_project(task_id, payload)
