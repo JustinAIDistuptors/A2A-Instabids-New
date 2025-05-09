@@ -9,10 +9,12 @@ jobs:
       # Add Gemini API Key from secrets
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      # SUPABASE_KEY is likely the service_role key, keep if needed elsewhere,
-      # but anon key is used by the app's client typically.
       SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # This URL is used by Supabase CLI to connect to the service container
       SUPABASE_DB_URL: "postgresql://postgres:postgres@localhost:5432/postgres"
       # Set Python path for imports
@@ -21,13 +23,11 @@ jobs:
     services:
       # Use Supabase image which includes pgvector
       postgres:
-        image: supabase/postgres:15.1.0.116 # Changed image
+        image: supabase/postgres:15.1.0.116
         ports: ["5432:5432"]
         env:
           POSTGRES_PASSWORD: postgres
-          # POSTGRES_USER: postgres # Usually defaults to postgres
-          # POSTGRES_DB: postgres # Usually defaults to postgres
-        options: >-
+        options: |
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
@@ -69,21 +69,23 @@ jobs:
     services:
       # Use Supabase image which includes pgvector
       postgres:
-        image: supabase/postgres:15.1.0.116 # Changed image
+        image: supabase/postgres:15.1.0.116
         ports: ["5432:5432"]
         env:
           POSTGRES_PASSWORD: postgres
-        options: >-
+          POSTGRES_USER: root
+          POSTGRES_DB: postgres
+        options: |
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # Updated version
+      - uses: pnpm/action-setup@v4
         with:
           version: 8
-      - uses: actions/setup-node@v4 # Updated version
+      - uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'pnpm'
@@ -95,22 +97,22 @@ jobs:
       - name: Install Supabase CLI
         run: npm install -g supabase@latest
 
-      # Install psql client (if needed for pg_isready, though Supabase CLI might handle waits)
-      - name: Install psql client (if needed)
+      # Install psql client
+      - name: Install psql client
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
 
       # Wait for PostgreSQL service to be ready
       - name: Wait for PostgreSQL
         run: |
-          until pg_isready -h localhost -p 5432 -U postgres; do
+          until pg_isready -h localhost -p 5432 -U root; do
             echo "Waiting for PostgreSQL..."
             sleep 2
           done
 
        # Apply migrations using Supabase CLI for E2E test DB
       - name: Apply Supabase Migrations for E2E
-        run: supabase db reset --local # Uses default localhost:5432 connection string internally
+        run: supabase db reset --local
 
       - name: Create fixtures directory
         run: mkdir -p cypress/fixtures
@@ -121,12 +123,40 @@ jobs:
       - name: Run Cypress tests
         run: pnpm exec cypress run
         env:
-          # Add required env vars for Cypress tests if they interact with the API
+          # Add required env vars for Cypress tests
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          # Note: The original had SUPABASE_URL: http://localhost:5432 which might be intentional
-          # if Cypress directly interacts with the Postgres service mock. Keep existing if needed.
-          # If Cypress talks to the deployed API, use secrets.SUPABASE_URL.
-          # Keeping the original localhost reference for now based on context:
-          # SUPABASE_URL: http://localhost:5432 
+
+  deploy:
+    needs: [test, e2e]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+          
+      - name: Build package
+        run: python -m build
+          
+      - name: Deploy to production
+        run: |
+          echo "Deploying version $(python setup.py --version) to production"
+          # Add your deployment commands here
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
