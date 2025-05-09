@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+from typing import List, Dict, Any, Optional
 from supabase import create_client  # type: ignore
 from instabids.tools.gemini_text_embed import embed # ADDED IMPORT
 import logging
@@ -59,7 +60,7 @@ def create_bid_card(homeowner_id: str, project_id: str, category: str, job_type:
 
     try:
         # Use insert for creating a new record
-        logger.debug(f"Inserting bid card data for project {project_id}: {{ {', '.join(f'{repr(k)}: {repr(v)[:20] + '...' if isinstance(v, list) else repr(v)}' for k, v in bid_card_data.items())} }}") # Log data safely
+        logger.debug(f"Inserting bid card data for project {project_id}")
         response = _sb.table("bid_cards").insert(bid_card_data).execute()
 
         # Check response for success/errors (Supabase API v2+)
@@ -75,7 +76,6 @@ def create_bid_card(homeowner_id: str, project_id: str, category: str, job_type:
         logger.exception(f"Exception occurred while creating bid card for project {project_id}: {e}")
         return None
 
-
 def upsert(row: dict) -> None:
     """Upserts a bid card record."""
     if not _sb:
@@ -89,9 +89,34 @@ def upsert(row: dict) -> None:
     except Exception as e:
         logger.exception(f"Exception occurred while upserting bid card for project {project_id}: {e}")
 
+def list_for_project(project_id: str) -> List[Dict[str, Any]]:
+    """List bid cards for a specific project."""
+    if not _sb:
+        logger.error("Cannot list bid cards: Supabase client not initialized.")
+        return []
+    try:
+        res = _sb.table("bid_cards").select("*").eq("project_id", project_id).execute()
+        return res.data
+    except Exception as e:
+        logger.exception(f"Error listing bid cards for project {project_id}: {e}")
+        return []
 
-def fetch(project_id: str) -> dict | None:
-    """Fetches a bid card record by project_id."""
+def list_for_owner(owner_id: str) -> List[Dict[str, Any]]:
+    """List bid cards for a specific homeowner."""
+    # This assumes there's a relationship between bid_cards and projects tables
+    # with owner_id in the projects table
+    if not _sb:
+        logger.error("Cannot list bid cards: Supabase client not initialized.")
+        return []
+    try:
+        res = _sb.table("bid_cards").select("*").eq("owner_id", owner_id).execute()
+        return res.data
+    except Exception as e:
+        logger.exception(f"Error listing bid cards for owner {owner_id}: {e}")
+        return []
+
+def fetch(project_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a bid card by project ID."""
     if not _sb:
         logger.error("Cannot fetch bid card: Supabase client not initialized.")
         return None
@@ -107,3 +132,12 @@ def fetch(project_id: str) -> dict | None:
     except Exception as e:
         logger.exception(f"Exception occurred while fetching bid card for project {project_id}: {e}")
         return None
+
+# Add alias functions for compatibility
+def get_bid_cards_by_project(project_id: str) -> List[Dict[str, Any]]:
+    """Get bid cards for a project."""
+    return list_for_project(project_id)
+
+def get_bid_cards_by_homeowner(owner_id: str) -> List[Dict[str, Any]]:
+    """Get bid cards for a homeowner."""
+    return list_for_owner(owner_id)
