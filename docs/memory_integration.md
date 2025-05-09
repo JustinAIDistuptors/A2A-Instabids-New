@@ -21,6 +21,7 @@ The core class that manages memory persistence using Supabase as the backend sto
 - Provides async methods for loading/saving memory state
 - Tracks user preferences and interaction history
 - Handles memory caching for performance
+- Automatically converts between string and UUID formats for user IDs
 
 ### ConversationState
 
@@ -58,13 +59,13 @@ Base agent class with memory and slot filling capabilities:
 
 ## Database Schema
 
-The memory system uses the following Supabase tables:
+The memory system uses the existing Supabase tables:
 
 ### user_memories
 
 Stores the complete memory state for each user:
 
-- `user_id` (primary key): Unique identifier for the user
+- `user_id` (primary key, UUID): Unique identifier for the user
 - `memory_data` (JSONB): Complete memory state including context, preferences, and interaction history
 - `created_at` (timestamp): When the memory was first created
 - `updated_at` (timestamp): When the memory was last updated
@@ -74,7 +75,7 @@ Stores the complete memory state for each user:
 Detailed log of user interactions for analytics:
 
 - `id` (UUID): Unique identifier for the interaction
-- `user_id`: Reference to the user
+- `user_id` (UUID): Reference to the user
 - `interaction_type`: Type of interaction (e.g., "project_creation", "conversation")
 - `interaction_data` (JSONB): Data associated with the interaction
 - `created_at` (timestamp): When the interaction occurred
@@ -84,7 +85,7 @@ Detailed log of user interactions for analytics:
 Extracted user preferences with confidence scores:
 
 - `id` (UUID): Unique identifier for the preference
-- `user_id`: Reference to the user
+- `user_id` (UUID): Reference to the user
 - `preference_key`: Key identifying the preference (e.g., "preferred_project_types")
 - `preference_value` (JSONB): Value of the preference
 - `confidence` (float): Confidence score (0-1) for the preference
@@ -103,7 +104,8 @@ from src.memory.persistent_memory import PersistentMemory
 supabase = create_client("SUPABASE_URL", "SUPABASE_KEY")
 
 # Create memory instance for a user
-memory = PersistentMemory(supabase, "user123")
+# Note: user_id must be a valid UUID format
+memory = PersistentMemory(supabase, "550e8400-e29b-41d4-a716-446655440000")
 
 # Load memory
 await memory.load()
@@ -142,7 +144,8 @@ from src.slot_filler.slot_filler_factory import SlotFillerFactory
 supabase = create_client("SUPABASE_URL", "SUPABASE_KEY")
 
 # Create memory instance
-memory = PersistentMemory(supabase, "user123")
+# Note: user_id must be a valid UUID format
+memory = PersistentMemory(supabase, "550e8400-e29b-41d4-a716-446655440000")
 await memory.load()
 
 # Create slot filler factory
@@ -252,6 +255,7 @@ multi_modal_context = slot_filler.state.get_multi_modal_context()
 - Use `memory.add_interaction()` to record significant user interactions
 - Call `await memory.save()` after making changes to ensure persistence
 - Use the preference learning system to track user preferences over time
+- Always use valid UUID format for user IDs, as the database uses UUID type
 
 ### Slot Filling
 
