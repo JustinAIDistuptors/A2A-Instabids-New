@@ -3,8 +3,8 @@
 venv/
 env/
 ENV/
-.venvGod/  # <--- ENSURE THIS LINE IS PRESENT AND CORRECT
-so/        # Keep this too, just in case there are other venvs or you switch
+.venvGod/
+so/
 *.pyenv
 
 # Byte-compiled / optimized / DLL files
@@ -102,6 +102,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.txt
 # .env.*
 !.env.example
 
@@ -158,3 +159,4 @@ tasks/
 
 # Next.js build output
 frontend/.next/
+frontend/.env.local
