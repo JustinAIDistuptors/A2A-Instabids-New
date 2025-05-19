@@ -1,0 +1,946 @@
+TITLE: Configuring API Keys for Multiple AI Providers in Python
+DESCRIPTION: This code sets up API keys for multiple AI providers (Google, OpenAI, Anthropic) as environment variables and verifies their presence. It configures ADK to use direct API access rather than Vertex AI integration.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/tutorial/agent_team/adk_tutorial.ipynb#2025-04-23_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+# @title Configure API Keys (Replace with your actual keys!)
+
+# --- IMPORTANT: Replace placeholders with your real API keys ---
+
+# Gemini API Key (Get from Google AI Studio: https://aistudio.google.com/app/apikey)
+os.environ["GOOGLE_API_KEY"] = "YOUR_GOOGLE_API_KEY" # <--- REPLACE
+
+# [Optional]
+# OpenAI API Key (Get from OpenAI Platform: https://platform.openai.com/api-keys)
+os.environ['OPENAI_API_KEY'] = 'YOUR_OPENAI_API_KEY' # <--- REPLACE
+
+# [Optional]
+# Anthropic API Key (Get from Anthropic Console: https://console.anthropic.com/settings/keys)
+os.environ['ANTHROPIC_API_KEY'] = 'YOUR_ANTHROPIC_API_KEY' # <--- REPLACE
+
+# --- Verify Keys (Optional Check) ---
+print("API Keys Set:")
+print(f"Google API Key set: {'Yes' if os.environ.get('GOOGLE_API_KEY') and os.environ['GOOGLE_API_KEY'] != 'YOUR_GOOGLE_API_KEY' else 'No (REPLACE PLACEHOLDER!)'}")
+print(f"OpenAI API Key set: {'Yes' if os.environ.get('OPENAI_API_KEY') and os.environ['OPENAI_API_KEY'] != 'YOUR_OPENAI_API_KEY' else 'No (REPLACE PLACEHOLDER!)'}")
+print(f"Anthropic API Key set: {'Yes' if os.environ.get('ANTHROPIC_API_KEY') and os.environ['ANTHROPIC_API_KEY'] != 'YOUR_ANTHROPIC_API_KEY' else 'No (REPLACE PLACEHOLDER!)'}")
+
+# Configure ADK to use API keys directly (not Vertex AI for this multi-model setup)
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
+
+
+# @markdown **Security Note:** It's best practice to manage API keys securely (e.g., using Colab Secrets or environment variables) rather than hardcoding them directly in the notebook. Replace the placeholder strings above.
+```
+
+----------------------------------------
+
+TITLE: Installing Google ADK Library (Bash)
+DESCRIPTION: This command installs the Google ADK (Agent Development Kit) library using pip, the Python package installer. It is a required dependency for building agents with ADK.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/get-started/quickstart-streaming.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+pip install google-adk
+```
+
+----------------------------------------
+
+TITLE: Install Agent Development Kit (Shell)
+DESCRIPTION: This command uses pip, the Python package installer, to download and install the Agent Development Kit library from the Python Package Index (PyPI). It is the standard way to get started with ADK.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/index.md#_snippet_0
+
+LANGUAGE: Shell
+CODE:
+```
+pip install google-adk
+```
+
+----------------------------------------
+
+TITLE: Setting Up Virtual Environment for ADK Installation
+DESCRIPTION: Commands for creating and activating a Python virtual environment prior to installing the Agent Development Kit, with variants for different operating systems.
+SOURCE: https://github.com/google/adk-docs/blob/main/llms.txt#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+python -m venv .venv
+source .venv/bin/activate # macOS/Linux
+# .venv\Scripts\activate.bat # Windows CMD
+# .venv\Scripts\Activate.ps1 # Windows PowerShell
+```
+
+----------------------------------------
+
+TITLE: Install Google ADK Package
+DESCRIPTION: Installs the Google Agent Development Kit (ADK) library and its dependencies using pip, the Python package installer. Requires an active Python environment (preferably a virtual environment).
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/get-started/quickstart.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+pip install google-adk
+```
+
+----------------------------------------
+
+TITLE: Install Google ADK Library - Bash
+DESCRIPTION: Installs the `google-adk` Python library using pip within the active virtual environment.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/streaming/custom-streaming.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+pip install google-adk
+```
+
+----------------------------------------
+
+TITLE: Importing Required Libraries for ADK Agent Development in Python
+DESCRIPTION: This snippet imports all necessary libraries for developing agents with ADK, including the core Agent class, LiteLLm for multi-model support, session management tools, and runners for agent execution.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/tutorial/agent_team/adk_tutorial.ipynb#2025-04-23_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+# @title Import necessary libraries
+import os
+import asyncio
+from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm # For multi-model support
+from google.adk.sessions import InMemorySessionService
+from google.adk.runners import Runner
+from google.genai import types # For creating message Content/Parts
+
+import warnings
+# Ignore all warnings
+warnings.filterwarnings("ignore")
+
+import logging
+logging.basicConfig(level=logging.ERROR)
+
+print("Libraries imported.")
+```
+
+----------------------------------------
+
+TITLE: Defining the Weather Agent (Python)
+DESCRIPTION: Creates an `Agent` instance named `weather_agent_v1` using a specified LLM model. It configures the agent with a description, instructions for the LLM on using the `get_weather` tool, and lists the available tools. Requires the `Agent` class, `get_weather` function, and a model constant.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/notebooks/adk_tutorial.ipynb#_snippet_7
+
+LANGUAGE: python
+CODE:
+```
+# @title Define the Weather Agent
+# Use one of the model constants defined earlier
+AGENT_MODEL = MODEL_GEMINI_2_0_FLASH # Starting with Gemini
+
+weather_agent = Agent(
+    name="weather_agent_v1",
+    model=AGENT_MODEL, # Can be a string for Gemini or a LiteLlm object
+    description="Provides weather information for specific cities.",
+    instruction="You are a helpful weather assistant. "
+                "When the user asks for the weather in a specific city, "
+                "use the 'get_weather' tool to find the information. "
+                "If the tool returns an error, inform the user politely. "
+                "If the tool is successful, present the weather report clearly.",
+    tools=[get_weather], # Pass the function directly
+)
+
+print(f"Agent '{weather_agent.name}' created using model '{AGENT_MODEL}'.")
+```
+
+----------------------------------------
+
+TITLE: Initializing LlmAgent Identity (Python)
+DESCRIPTION: This snippet shows the basic instantiation of an `LlmAgent` in ADK. It requires specifying the underlying LLM `model`, a unique string `name` for identification, and an optional `description` that helps other agents understand its purpose in a multi-agent system. This defines the agent's fundamental identity before adding instructions or tools.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/agents/llm-agents.md#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+# Example: Defining the basic identity
+capital_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    name="capital_agent",
+    description="Answers user questions about the capital city of a given country."
+    # instruction and tools will be added next
+)
+```
+
+----------------------------------------
+
+TITLE: Implementing a Guardrail using before_model_callback in ADK
+DESCRIPTION: This example shows how to implement a basic content filter as a guardrail using the before_model_callback. It checks the LLM request for forbidden words and either allows the request to proceed or returns a predefined safe response.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/callbacks/index.md#2025-04-21_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+from typing import Optional
+from google.adk import types
+from google.adk.llm import LlmResponse
+
+FORBIDDEN_WORDS = ["dangerous", "harmful", "illegal"]
+
+def content_filter(context: types.CallbackContext) -> Optional[LlmResponse]:
+    for word in FORBIDDEN_WORDS:
+        if word in context.llm_request.prompt.lower():
+            print(f"Blocked request containing forbidden word: {word}")
+            return LlmResponse(content="I cannot assist with that request.")
+    # If we reach here, the content is safe
+    return None  # Allows the LLM call to proceed normally
+
+# Usage:
+agent = Agent(
+    name="SafeAgent",
+    llm=my_llm_config,
+    before_model_callback=content_filter
+)
+```
+
+----------------------------------------
+
+TITLE: Configuring API Keys for Multiple LLM Services
+DESCRIPTION: Sets up environment variables for various LLM API keys (Google AI, OpenAI, Anthropic) and verifies their configuration status.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tutorials/agent-team.md#2025-04-23_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+os.environ["GOOGLE_API_KEY"] = "YOUR_GOOGLE_API_KEY"
+os.environ['OPENAI_API_KEY'] = 'YOUR_OPENAI_API_KEY'
+os.environ['ANTHROPIC_API_KEY'] = 'YOUR_ANTHROPIC_API_KEY'
+
+print("API Keys Set:")
+print(f"Google API Key set: {'Yes' if os.environ.get('GOOGLE_API_KEY') and os.environ['GOOGLE_API_KEY'] != 'YOUR_GOOGLE_API_KEY' else 'No (REPLACE PLACEHOLDER!)')")
+print(f"OpenAI API Key set: {'Yes' if os.environ.get('OPENAI_API_KEY') and os.environ['OPENAI_API_KEY'] != 'YOUR_OPENAI_API_KEY' else 'No (REPLACE PLACEHOLDER!)')")
+print(f"Anthropic API Key set: {'Yes' if os.environ.get('ANTHROPIC_API_KEY') and os.environ['ANTHROPIC_API_KEY'] != 'YOUR_ANTHROPIC_API_KEY' else 'No (REPLACE PLACEHOLDER!)')")
+
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
+```
+
+----------------------------------------
+
+TITLE: Configuring Weather Agent with ADK
+DESCRIPTION: Creates and configures an ADK Agent with the weather tool. Specifies the agent's name, model, description, and instructions for handling weather queries.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/tutorial/agent_team/adk_tutorial.ipynb#2025-04-23_snippet_5
+
+LANGUAGE: python
+CODE:
+```
+weather_agent = Agent(
+    name="weather_agent_v1",
+    model=AGENT_MODEL, # Can be a string for Gemini or a LiteLlm object
+    description="Provides weather information for specific cities.",
+    instruction="You are a helpful weather assistant. "
+                "When the user asks for the weather in a specific city, "
+                "use the 'get_weather' tool to find the information. "
+                "If the tool returns an error, inform the user politely. "
+                "If the tool is successful, present the weather report clearly.",
+    tools=[get_weather], # Pass the function directly
+)
+
+print(f"Agent '{weather_agent.name}' created using model '{AGENT_MODEL}'.")
+```
+
+----------------------------------------
+
+TITLE: Streaming ADK Agent Events to WebSocket Client (Python)
+DESCRIPTION: This asynchronous function processes events received from an ADK agent's live event stream and sends formatted messages to a WebSocket client. It handles turn completion/interruption flags, streams partial text updates, and encodes/sends audio data (PCM) in Base64 format. It requires a WebSocket connection object and an asynchronous iterator of agent events.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/streaming/custom-streaming.md#_snippet_12
+
+LANGUAGE: python
+CODE:
+```
+async def agent_to_client_messaging(websocket, live_events):
+    """Agent to client communication"""
+    while True:
+        async for event in live_events:
+
+            # If the turn complete or interrupted, send it
+            if event.turn_complete or event.interrupted:
+                message = {
+                    "turn_complete": event.turn_complete,
+                    "interrupted": event.interrupted,
+                }
+                await websocket.send_text(json.dumps(message))
+                print(f"[AGENT TO CLIENT]: {message}")
+                continue
+
+            # Read the Content and its first Part
+            part: Part = (
+                event.content and event.content.parts and event.content.parts[0]
+            )
+            if not part:
+                continue
+
+            # If it's audio, send Base64 encoded audio data
+            is_audio = part.inline_data and part.inline_data.mime_type.startswith("audio/pcm")
+            if is_audio:
+                audio_data = part.inline_data and part.inline_data.data
+                if audio_data:
+                    message = {
+                        "mime_type": "audio/pcm",
+                        "data": base64.b64encode(audio_data).decode("ascii")
+                    }
+                    await websocket.send_text(json.dumps(message))
+                    print(f"[AGENT TO CLIENT]: audio/pcm: {len(audio_data)} bytes.")
+                    continue
+
+            # If it's text and a parial text, send it
+            if part.text and event.partial:
+                message = {
+                    "mime_type": "text/plain",
+                    "data": part.text
+                }
+                await websocket.send_text(json.dumps(message))
+                print(f"[AGENT TO CLIENT]: text/plain: {message}")
+```
+
+----------------------------------------
+
+TITLE: Installing ADK Dependencies in Python
+DESCRIPTION: Installation of required packages google-adk and litellm for multi-model support.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tutorials/agent-team.md#2025-04-23_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+!pip install google-adk -q
+!pip install litellm -q
+
+print("Installation complete.")
+```
+
+----------------------------------------
+
+TITLE: Adding Instructions to LlmAgent (Python)
+DESCRIPTION: This snippet illustrates how to provide detailed instructions to an `LlmAgent` using the `instruction` parameter. The instruction is a multiline string guiding the agent's behavior, persona, task steps, tool usage (`get_capital_city`), and desired output format, including examples. This parameter is crucial for shaping the agent's non-deterministic reasoning process.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/agents/llm-agents.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+# Example: Adding instructions
+capital_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    name="capital_agent",
+    description="Answers user questions about the capital city of a given country.",
+    instruction="""You are an agent that provides the capital city of a country.
+When a user asks for the capital of a country:
+1. Identify the country name from the user's query.
+2. Use the `get_capital_city` tool to find the capital.
+3. Respond clearly to the user, stating the capital city.
+Example Query: "What's the capital of France?"
+Example Response: "The capital of France is Paris."
+""",
+    # tools will be added next
+)
+```
+
+----------------------------------------
+
+TITLE: Implementing Pet Store API Integration with OpenAPIToolset in Python
+DESCRIPTION: A complete example demonstrating how to generate tools from a Pet Store OpenAPI spec, create an agent with these tools, and interact with the API. It uses httpbin.org for mock responses.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tools/openapi-tools.md#2025-04-21_snippet_3
+
+LANGUAGE: python
+CODE:
+```
+import json
+from google.adk.tools.openapi_tool.openapi_spec_parser.openapi_toolset import OpenAPIToolset
+from google.adk.agents import LlmAgent
+from google.adk.runners.interactive_runner import InteractiveRunner
+
+# Simple Pet Store OpenAPI spec (using httpbin.org for mocking)
+PET_STORE_SPEC = {
+    "openapi": "3.0.0",
+    "info": {"title": "Pet Store API", "version": "1.0.0"},
+    "servers": [{"url": "https://httpbin.org"}],
+    "paths": {
+        "/pets": {
+            "get": {
+                "summary": "List all pets",
+                "operationId": "listPets",
+                "responses": {"200": {"description": "Successful response"}}
+            },
+            "post": {
+                "summary": "Create a pet",
+                "operationId": "createPet",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name", "type"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "type": {"type": "string"},
+                                    "age": {"type": "integer"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {"200": {"description": "Successful response"}}
+            }
+        },
+        "/pets/{petId}": {
+            "get": {
+                "summary": "Info for a specific pet",
+                "operationId": "showPetById",
+                "parameters": [
+                    {
+                        "name": "petId",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string"}
+                    }
+                ],
+                "responses": {"200": {"description": "Successful response"}}
+            }
+        }
+    }
+}
+
+# Create OpenAPIToolset
+toolset = OpenAPIToolset(spec_dict=PET_STORE_SPEC)
+
+# Get generated tools
+api_tools = toolset.get_tools()
+
+# Create an agent with the API tools
+agent = LlmAgent(
+    name="pet_store_agent",
+    model="gemini-2.0-flash",
+    tools=api_tools,
+    instructions="You are an assistant that can interact with a Pet Store API. "
+                 "You can list pets, create new pets, and get info about specific pets."
+)
+
+# Run the agent interactively
+runner = InteractiveRunner(agent)
+runner.run()
+
+# Example interactions:
+# > List all pets
+# > Create a new pet named Fluffy
+# > Get info for pet with ID 123
+```
+
+----------------------------------------
+
+TITLE: Define Mock Weather Tool Function (Python)
+DESCRIPTION: Implements a Python function get_weather that simulates fetching weather data for specific cities. This function serves as a mock tool for an ADK agent, demonstrating how tools are structured and how docstrings are used by the LLM to understand tool usage.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/notebooks/adk_tutorial.ipynb#_snippet_5
+
+LANGUAGE: python
+CODE:
+```
+# @title Define the get_weather Tool
+def get_weather(city: str) -> dict:
+    """Retrieves the current weather report for a specified city.
+
+    Args:
+        city (str): The name of the city (e.g., "New York", "London", "Tokyo").
+
+    Returns:
+        dict: A dictionary containing the weather information.
+              Includes a 'status' key ('success' or 'error').
+              If 'success', includes a 'report' key with weather details.
+              If 'error', includes an 'error_message' key.
+    """
+    print(f"--- Tool: get_weather called for city: {city} ---") # Log tool execution
+    city_normalized = city.lower().replace(" ", "") # Basic normalization
+
+    # Mock weather data
+    mock_weather_db = {
+        "newyork": {"status": "success", "report": "The weather in New York is sunny with a temperature of 25°C."},
+        "london": {"status": "success", "report": "It's cloudy in London with a temperature of 15°C."},
+        "tokyo": {"status": "success", "report": "Tokyo is experiencing light rain and a temperature of 18°C."}
+    }
+
+    if city_normalized in mock_weather_db:
+        return mock_weather_db[city_normalized]
+    else:
+        return {"status": "error", "error_message": f"Sorry, I don't have weather information for '{city}'."}
+```
+
+----------------------------------------
+
+TITLE: Install ADK and LiteLLM (pip)
+DESCRIPTION: Installs the necessary Python packages, google-adk and litellm, using the pip package installer within the activated virtual environment.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/tutorial/agent_team/adk-tutorial/readme.md#_snippet_5
+
+LANGUAGE: Bash
+CODE:
+```
+pip install google-adk
+pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Configure API Keys (Replace with your actual keys!)
+DESCRIPTION: This snippet demonstrates how to configure API keys for various LLMs (Gemini, OpenAI, Anthropic) by setting environment variables. Users are instructed to replace the placeholder values with their actual keys obtained from the respective platforms. This is a prerequisite for using these models via LiteLLM.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/notebooks/adk_tutorial.ipynb#_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+# --- IMPORTANT: Replace placeholders with your real API keys ---
+
+# Gemini API Key (Get from Google AI Studio: https://aistudio.google.com/app/apikey)
+os.environ["GOOGLE_API_KEY"] = "YOUR_GOOGLE_API_KEY" # <--- REPLACE
+
+# OpenAI API Key (Get from OpenAI Platform: https://platform.openai.com/api-keys)
+os.environ['OPENAI_API_KEY'] = 'YOUR_OPENAI_API_KEY' # <--- REPLACE
+
+# Anthropic API Key (Get from Anthropic Console: https://console.anthropic.com/settings/keys)
+os.environ['ANTHROPIC_API_KEY'] = 'YOUR_ANTHROPIC_API_KEY' # <--- REPLACE
+
+
+```
+
+----------------------------------------
+
+TITLE: Using ToolContext in Function Tools
+DESCRIPTION: Shows implementation of a tool function using ToolContext, demonstrating authentication handling, memory search, and artifact listing capabilities.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/context/index.md#2025-04-21_snippet_4
+
+LANGUAGE: python
+CODE:
+```
+from google.adk.tools import ToolContext
+from typing import Dict, Any
+
+# Assume this function is wrapped by a FunctionTool
+def search_external_api(query: str, tool_context: ToolContext) -> Dict[str, Any]:
+    api_key = tool_context.state.get("api_key")
+    if not api_key:
+        # Define required auth config
+        # auth_config = AuthConfig(...)
+        # tool_context.request_credential(auth_config) # Request credentials
+        # Use the 'actions' property to signal the auth request has been made
+        # tool_context.actions.requested_auth_configs[tool_context.function_call_id] = auth_config
+        return {"status": "Auth Required"}
+
+    # Use the API key...
+    print(f"Tool executing for query '{query}' using API key. Invocation: {tool_context.invocation_id}")
+
+    # Optionally search memory or list artifacts
+    # relevant_docs = tool_context.search_memory(f"info related to {query}")
+    # available_files = tool_context.list_artifacts()
+
+    return {"result": f"Data for {query} fetched."}
+```
+
+----------------------------------------
+
+TITLE: Defining ADK RunConfig Class in Python
+DESCRIPTION: Defines the `RunConfig` Pydantic model used to configure agent runtime behavior. It includes options for speech, streaming, response modalities, artifact saving, function calling support, audio transcription, and LLM call limits. Uses `extra='forbid'` to prevent unknown parameters.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/runtime/runconfig.md#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+class RunConfig(BaseModel):
+    """Configs for runtime behavior of agents."""
+
+    model_config = ConfigDict(
+        extra='forbid',
+    )
+
+    speech_config: Optional[types.SpeechConfig] = None
+    response_modalities: Optional[list[str]] = None
+    save_input_blobs_as_artifacts: bool = False
+    support_cfc: bool = False
+    streaming_mode: StreamingMode = StreamingMode.NONE
+    output_audio_transcription: Optional[types.AudioTranscriptionConfig] = None
+    max_llm_calls: int = 500
+```
+
+----------------------------------------
+
+TITLE: Obtaining Stock Price using Python Function Tool
+DESCRIPTION: This Python function tool fetches the current stock price for a given ticker symbol using the `yfinance` library. It requires `pip install yfinance`. The function's docstring serves as the tool's description for the LLM. The return value will be automatically wrapped into a dictionary by the framework.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tools/function-tools.md#_snippet_0
+
+LANGUAGE: Python
+CODE:
+```
+import yfinance as yf
+
+def get_stock_price(ticker: str) -> str:
+    """Obtains the Stock price of a given Stock ticker/ symbol.
+
+    Args:
+        ticker: The stock ticker symbol (e.g., "AAPL").
+
+    Returns:
+        The current stock price as a string (e.g., "$123.45").
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        # Get the current price (last close or current if market open)
+        price = stock.history(period="1d")['Close'].iloc[-1]
+        return f"${price:.2f}"
+    except Exception as e:
+        return f"Error fetching price for {ticker}: {e}"
+
+```
+
+----------------------------------------
+
+TITLE: Define ADK LlmAgent with Tools (Python)
+DESCRIPTION: Create an `LlmAgent` instance for the ADK agent. This code defines the agent's model, name, instruction, and integrates the previously created `APIHubToolset` by calling its `get_tools()` method.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tools/google-cloud-tools.md#_snippet_2
+
+LANGUAGE: Python
+CODE:
+```
+from google.adk.agents.llm_agent import LlmAgent
+from .tools import sample_toolset
+
+root_agent = LlmAgent(
+    model='gemini-2.0-flash',
+    name='enterprise_assistant',
+    instruction='Help user, leverage the tools you have access to',
+    tools=sample_toolset.get_tools(),
+)
+```
+
+----------------------------------------
+
+TITLE: Setting Up LLM-Driven Delegation in ADK Python
+DESCRIPTION: This example demonstrates the basic setup required for LLM-driven agent delegation within an ADK multi-agent system. It shows a parent LlmAgent configured with instructions on how to delegate tasks to its sub-agents, which are defined with descriptions that help the parent LLM understand their capabilities, enabling dynamic task routing via function calls.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/agents/multi-agents.md#_snippet_5
+
+LANGUAGE: python
+CODE:
+```
+# Conceptual Setup: LLM Transfer
+from google.adk.agents import LlmAgent
+
+booking_agent = LlmAgent(name="Booker", description="Handles flight and hotel bookings.")
+info_agent = LlmAgent(name="Info", description="Provides general information and answers questions.")
+
+coordinator = LlmAgent(
+    name="Coordinator",
+    model="gemini-2.0-flash",
+    instruction="You are an assistant. Delegate booking tasks to Booker and info requests to Info.",
+    description="Main coordinator.",
+    # AutoFlow is typically used implicitly here
+    sub_agents=[booking_agent, info_agent]
+)
+# If coordinator receives "Book a flight", its LLM should generate:
+# FunctionCall(name='transfer_to_agent', args={'agent_name': 'Booker'})
+
+```
+
+----------------------------------------
+
+TITLE: Defining a Root Weather Agent with Sub-Agents in Google ADK
+DESCRIPTION: Creates a main weather agent that can handle weather requests directly while delegating greeting and farewell tasks to specialized sub-agents. The agent is configured with instructions on when to handle tasks itself versus when to delegate to sub-agents.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/tutorial/agent_team/adk_tutorial.ipynb#2025-04-23_snippet_16
+
+LANGUAGE: python
+CODE:
+```
+# Ensure sub-agents were created successfully before defining the root agent.
+# Also ensure the original 'get_weather' tool is defined.
+root_agent = None
+runner_root = None # Initialize runner
+
+if greeting_agent and farewell_agent and 'get_weather' in globals():
+    # Let's use a capable Gemini model for the root agent to handle orchestration
+    root_agent_model = MODEL_GEMINI_2_0_FLASH
+
+    weather_agent_team = Agent(
+        name="weather_agent_v2", # Give it a new version name
+        model=root_agent_model,
+        description="The main coordinator agent. Handles weather requests and delegates greetings/farewells to specialists.",
+        instruction="You are the main Weather Agent coordinating a team. Your primary responsibility is to provide weather information. "
+                    "Use the 'get_weather' tool ONLY for specific weather requests (e.g., 'weather in London'). "
+                    "You have specialized sub-agents: "
+                    "1. 'greeting_agent': Handles simple greetings like 'Hi', 'Hello'. Delegate to it for these. "
+                    "2. 'farewell_agent': Handles simple farewells like 'Bye', 'See you'. Delegate to it for these. "
+                    "Analyze the user's query. If it's a greeting, delegate to 'greeting_agent'. If it's a farewell, delegate to 'farewell_agent'. "
+                    "If it's a weather request, handle it yourself using 'get_weather'. "
+                    "For anything else, respond appropriately or state you cannot handle it.",
+        tools=[get_weather], # Root agent still needs the weather tool for its core task
+        # Key change: Link the sub-agents here!
+        sub_agents=[greeting_agent, farewell_agent]
+    )
+    print(f"✅ Root Agent '{weather_agent_team.name}' created using model '{root_agent_model}' with sub-agents: {[sa.name for sa in weather_agent_team.sub_agents]}")
+
+else:
+    print("❌ Cannot create root agent because one or more sub-agents failed to initialize or 'get_weather' tool is missing.")
+    if not greeting_agent: print(" - Greeting Agent is missing.")
+    if not farewell_agent: print(" - Farewell Agent is missing.")
+    if 'get_weather' not in globals(): print(" - get_weather function is missing.")
+```
+
+----------------------------------------
+
+TITLE: Implementing Before Tool Callback in Python
+DESCRIPTION: This Python code demonstrates how to implement a `before_tool_callback` function to add pre-validation of tool calls in a Gemini-based agent. This callback receives the agent's state, tool details, and arguments. It allows for custom validation logic, preventing potentially unsafe actions. The example checks for user ID mismatches, but it can be extended for diverse security needs.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/safety/index.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+# Hypothetical callback function
+def validate_tool_params(
+    callback_context: CallbackContext, # Correct context type
+    tool: BaseTool,
+    args: Dict[str, Any],
+    tool_context: ToolContext
+    ) -> Optional[Dict]: # Correct return type for before_tool_callback
+
+  print(f"Callback triggered for tool: {tool.name}, args: {args}")
+
+  # Example validation: Check if a required user ID from state matches an arg
+  expected_user_id = callback_context.state.get("session_user_id")
+  actual_user_id_in_args = args.get("user_id_param") # Assuming tool takes 'user_id_param'
+
+  if actual_user_id_in_args != expected_user_id:
+      print("Validation Failed: User ID mismatch!")
+      # Return a dictionary to prevent tool execution and provide feedback
+      return {"error": f"Tool call blocked: User ID mismatch."}
+
+  # Return None to allow the tool call to proceed if validation passes
+  print("Callback validation passed.")
+  return None
+
+# Hypothetical Agent setup
+root_agent = LlmAgent( # Use specific agent type
+    model='gemini-2.0-flash',
+    name='root_agent',
+    instruction="...",
+    before_tool_callback=validate_tool_params, # Assign the callback
+    tools = [
+      # ... list of tool functions or Tool instances ...
+      # e.g., query_tool_instance
+    ]
+)
+```
+
+----------------------------------------
+
+TITLE: Implementing Async Agent Interaction Handler in Python
+DESCRIPTION: Defines an async function to handle interactions between users and the ADK agent. The function processes queries, manages conversation flow, and handles agent responses including tool calls.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tutorials/agent-team.md#2025-04-23_snippet_7
+
+LANGUAGE: python
+CODE:
+```
+async def call_agent_async(query: str, runner, user_id, session_id):
+  """Sends a query to the agent and prints the final response."""
+  print(f"\n>>> User Query: {query}")
+
+  # Prepare the user's message in ADK format
+  content = types.Content(role='user', parts=[types.Part(text=query)])
+
+  final_response_text = "Agent did not produce a final response." # Default
+
+  # Key Concept: run_async executes the agent logic and yields Events.
+  # We iterate through events to find the final answer.
+  async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+      # You can uncomment the line below to see *all* events during execution
+      # print(f"  [Event] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {event.content}")
+
+      # Key Concept: is_final_response() marks the concluding message for the turn.
+      if event.is_final_response():
+          if event.content and event.content.parts:
+             # Assuming text response in the first part
+             final_response_text = event.content.parts[0].text
+          elif event.actions and event.actions.escalate: # Handle potential errors/escalations
+             final_response_text = f"Agent escalated: {event.error_message or 'No specific message.'}"
+          # Add more checks here if needed (e.g., specific error codes)
+          break # Stop processing events once the final response is found
+
+  print(f"<<< Agent Response: {final_response_text}")
+```
+
+----------------------------------------
+
+TITLE: Initializing LlmAgent with Output Key in Python
+DESCRIPTION: Demonstrates how to define an LlmAgent with an output_key to automatically save the agent's response to the session state. This example includes setting up a Runner and Session, running the agent, and checking the updated state.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/sessions/state.md#2025-04-21_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+from google.adk.agents import LlmAgent
+from google.adk.sessions import InMemorySessionService, Session
+from google.adk.runners import Runner
+from google.genai.types import Content, Part
+
+# Define agent with output_key
+greeting_agent = LlmAgent(
+    name="Greeter",
+    model="gemini-2.0-flash", # Use a valid model
+    instruction="Generate a short, friendly greeting.",
+    output_key="last_greeting" # Save response to state['last_greeting']
+)
+
+# --- Setup Runner and Session ---
+app_name, user_id, session_id = "state_app", "user1", "session1"
+session_service = InMemorySessionService()
+runner = Runner(
+    agent=greeting_agent,
+    app_name=app_name,
+    session_service=session_service
+)
+session = session_service.create_session(app_name=app_name, 
+                                        user_id=user_id, 
+                                        session_id=session_id)
+print(f"Initial state: {session.state}")
+
+# --- Run the Agent ---
+# Runner handles calling append_event, which uses the output_key
+# to automatically create the state_delta.
+user_message = Content(parts=[Part(text="Hello")])
+for event in runner.run(user_id=user_id, 
+                        session_id=session_id, 
+                        new_message=user_message):
+    if event.is_final_response():
+      print(f"Agent responded.") # Response text is also in event.content
+
+# --- Check Updated State ---
+updated_session = session_service.get_session(app_name, user_id, session_id)
+print(f"State after agent run: {updated_session.state}")
+# Expected output might include: {'last_greeting': 'Hello there! How can I help you today?'}
+```
+
+----------------------------------------
+
+TITLE: Implementing Stateful Conversation Runner with Weather Queries in Python
+DESCRIPTION: Demonstrates an async implementation of a stateful conversation system that handles weather queries, manages temperature unit preferences, and maintains session state. Features direct state manipulation, async execution options for different environments, and comprehensive state inspection.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/tutorials/agent-team.md#2025-04-23_snippet_21
+
+LANGUAGE: python
+CODE:
+```
+if 'runner_root_stateful' in globals() and runner_root_stateful:
+    async def run_stateful_conversation():
+        print("\n--- Testing State: Temp Unit Conversion & output_key ---")
+
+        print("--- Turn 1: Requesting weather in London (expect Celsius) ---")
+        await call_agent_async(query= "What's the weather in London?",
+                               runner=runner_root_stateful,
+                               user_id=USER_ID_STATEFUL,
+                               session_id=SESSION_ID_STATEFUL
+                              )
+
+        print("\n--- Manually Updating State: Setting unit to Fahrenheit ---")
+        try:
+            stored_session = session_service_stateful.sessions[APP_NAME][USER_ID_STATEFUL][SESSION_ID_STATEFUL]
+            stored_session.state["user_preference_temperature_unit"] = "Fahrenheit"
+            print(f"--- Stored session state updated. Current 'user_preference_temperature_unit': {stored_session.state.get('user_preference_temperature_unit', 'Not Set')} ---")
+        except KeyError:
+            print(f"--- Error: Could not retrieve session '{SESSION_ID_STATEFUL}' from internal storage for user '{USER_ID_STATEFUL}' in app '{APP_NAME}' to update state. Check IDs and if session was created. ---")
+        except Exception as e:
+             print(f"--- Error updating internal session state: {e} ---")
+
+        print("\n--- Turn 2: Requesting weather in New York (expect Fahrenheit) ---")
+        await call_agent_async(query= "Tell me the weather in New York.",
+                               runner=runner_root_stateful,
+                               user_id=USER_ID_STATEFUL,
+                               session_id=SESSION_ID_STATEFUL
+                              )
+
+        print("\n--- Turn 3: Sending a greeting ---")
+        await call_agent_async(query= "Hi!",
+                               runner=runner_root_stateful,
+                               user_id=USER_ID_STATEFUL,
+                               session_id=SESSION_ID_STATEFUL
+                              )
+
+    print("Attempting execution using 'await' (default for notebooks)...")
+    await run_stateful_conversation()
+
+    print("\n--- Inspecting Final Session State ---")
+    final_session = session_service_stateful.get_session(app_name=APP_NAME,
+                                                         user_id= USER_ID_STATEFUL,
+                                                         session_id=SESSION_ID_STATEFUL)
+    if final_session:
+        print(f"Final Preference: {final_session.state.get('user_preference_temperature_unit', 'Not Set')}")
+        print(f"Final Last Weather Report (from output_key): {final_session.state.get('last_weather_report', 'Not Set')}")
+        print(f"Final Last City Checked (by tool): {final_session.state.get('last_city_checked_stateful', 'Not Set')}")
+    else:
+        print("\n❌ Error: Could not retrieve final session state.")
+
+else:
+    print("\n⚠️ Skipping state test conversation. Stateful root agent runner ('runner_root_stateful') is not available.")
+```
+
+----------------------------------------
+
+TITLE: Define ADK Agent Interaction Function - Python
+DESCRIPTION: Defines an asynchronous Python function `call_agent_async` to send a user query to an ADK agent, process the stream of events received from `runner.run_async`, identify the final response, and handle potential escalations or errors.
+SOURCE: https://github.com/google/adk-docs/blob/main/examples/python/notebooks/adk_tutorial.ipynb#_snippet_9
+
+LANGUAGE: python
+CODE:
+```
+from google.genai import types # For creating message Content/Parts
+
+async def call_agent_async(query: str, runner, user_id, session_id):
+  """Sends a query to the agent and prints the final response."""
+  print(f"\n>>> User Query: {query}")
+
+  # Prepare the user's message in ADK format
+  content = types.Content(role='user', parts=[types.Part(text=query)])
+
+  final_response_text = "Agent did not produce a final response." # Default
+
+  # Key Concept: run_async executes the agent logic and yields Events.
+  # We iterate through events to find the final answer.
+  async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+      # You can uncomment the line below to see *all* events during execution
+      # print(f"  [Event] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {event.content}")
+
+      # Key Concept: is_final_response() marks the concluding message for the turn.
+      if event.is_final_response():
+          if event.content and event.content.parts:
+             # Assuming text response in the first part
+             final_response_text = event.content.parts[0].text
+          elif event.actions and event.actions.escalate: # Handle potential errors/escalations
+             final_response_text = f"Agent escalated: {event.error_message or 'No specific message.'}"
+          # Add more checks here if needed (e.g., specific error codes)
+          break # Stop processing events once the final response is found
+
+  print(f"<<< Agent Response: {final_response_text}")
+```
+
+----------------------------------------
+
+TITLE: Adding Function Tool to LlmAgent (Python)
+DESCRIPTION: This snippet demonstrates how to equip an `LlmAgent` with external capabilities by defining a Python function (`get_capital_city`) and adding it to the agent's `tools` list. The function's docstring (`"""Retrieves the capital city..."""`) and parameters are used by the LLM to understand when and how to call the tool. The agent can then invoke this function during its reasoning process.
+SOURCE: https://github.com/google/adk-docs/blob/main/docs/agents/llm-agents.md#_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+# Define a tool function
+def get_capital_city(country: str) -> str:
+  """Retrieves the capital city for a given country."""
+  # Replace with actual logic (e.g., API call, database lookup)
+  capitals = {"france": "Paris", "japan": "Tokyo", "canada": "Ottawa"}
+  return capitals.get(country.lower(), f"Sorry, I don't know the capital of {country}.")
+
+# Add the tool to the agent
+capital_agent = LlmAgent(
+    model="gemini-2.0-flash",
+    name="capital_agent",
+    description="Answers user questions about the capital city of a given country.",
+    instruction="""You are an agent that provides the capital city of a country... (previous instruction text)""",
+    tools=[get_capital_city] # Provide the function directly
+)
+```
