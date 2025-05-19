@@ -1,0 +1,4275 @@
+TITLE: Implementing A2A Server with Task Handler in TypeScript
+DESCRIPTION: Demonstrates the setup of an A2A server with a custom task handler implementation. Shows how to handle task lifecycle, yield updates, manage cancellation, and produce artifacts. Uses async generator pattern for progressive task updates.
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/src/server/README.md#2025-04-21_snippet_0
+
+LANGUAGE: typescript
+CODE:
+```
+import {
+  A2AServer,
+  InMemoryTaskStore,
+  TaskContext,
+  TaskYieldUpdate,
+} from "./index"; // Assuming imports from the server package
+
+// 1. Define your agent's logic as a TaskHandler
+async function* myAgentLogic(
+  context: TaskContext
+): AsyncGenerator<TaskYieldUpdate> {
+  console.log(`Handling task: ${context.task.id}`);
+  yield {
+    state: "working",
+    message: { role: "agent", parts: [{ text: "Processing..." }] },
+  };
+
+  // Simulate work...
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  if (context.isCancelled()) {
+    console.log("Task cancelled!");
+    yield { state: "canceled" };
+    return;
+  }
+
+  // Yield an artifact
+  yield {
+    name: "result.txt",
+    mimeType: "text/plain",
+    parts: [{ text: `Task ${context.task.id} completed.` }],
+  };
+
+  // Yield final status
+  yield {
+    state: "completed",
+    message: { role: "agent", parts: [{ text: "Done!" }] },
+  };
+}
+
+// 2. Create and start the server
+const store = new InMemoryTaskStore(); // Or new FileStore()
+const server = new A2AServer(myAgentLogic, { taskStore: store });
+
+server.start(); // Starts listening on default port 41241
+
+console.log("A2A Server started.");
+```
+
+----------------------------------------
+
+TITLE: Streaming Implementation with A2A Client in TypeScript
+DESCRIPTION: Shows how to implement streaming task updates using A2AClient. The example demonstrates subscribing to task events, handling different event types (status updates and artifact updates), and properly processing the streaming response until the server signals completion.
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/src/client/README.md#2025-04-21_snippet_1
+
+LANGUAGE: typescript
+CODE:
+```
+import {
+  A2AClient,
+  TaskStatusUpdateEvent,
+  TaskArtifactUpdateEvent,
+  TaskSendParams, // Use params type directly
+} from "./client"; // Adjust path if necessary
+import { v4 as uuidv4 } from "uuid";
+
+const client = new A2AClient("http://localhost:41241");
+
+async function streamTask() {
+  const streamingTaskId = uuidv4();
+  try {
+    console.log(`\n--- Starting streaming task ${streamingTaskId} ---`);
+    // Construct just the params
+    const streamParams: TaskSendParams = {
+      id: streamingTaskId,
+      message: { role: "user", parts: [{ text: "Stream me some updates!", type: "text" }] },
+    };
+    // Pass only params to the client method
+    const stream = client.sendTaskSubscribe(streamParams);
+
+    // Stream now yields the event payloads directly
+    for await (const event of stream) {
+      // Type guard to differentiate events based on structure
+      if ("status" in event) {
+        // It's a TaskStatusUpdateEvent
+        const statusEvent = event as TaskStatusUpdateEvent; // Cast for clarity
+        console.log(
+          `[${streamingTaskId}] Status Update: ${statusEvent.status.state} - ${
+            statusEvent.status.message?.parts[0]?.text ?? "No message"
+          }`
+        );
+        if (statusEvent.final) {
+          console.log(`[${streamingTaskId}] Stream marked as final.`);
+          break; // Exit loop when server signals completion
+        }
+      } else if ("artifact" in event) {
+        // It's a TaskArtifactUpdateEvent
+        const artifactEvent = event as TaskArtifactUpdateEvent; // Cast for clarity
+        console.log(
+          `[${streamingTaskId}] Artifact Update: ${
+            artifactEvent.artifact.name ??
+            `Index ${artifactEvent.artifact.index}`
+          } - Part Count: ${artifactEvent.artifact.parts.length}`
+        );
+        // Process artifact content (e.g., artifactEvent.artifact.parts[0].text)
+      } else {
+        console.warn("Received unknown event structure:", event);
+      }
+    }
+    console.log(`--- Streaming task ${streamingTaskId} finished ---`);
+  } catch (error) {
+    console.error(`Error during streaming task ${streamingTaskId}:`, error);
+  }
+}
+
+streamTask();
+```
+
+----------------------------------------
+
+TITLE: Initializing and Starting A2A Server - Python
+DESCRIPTION: Demonstrates how to instantiate and start the `A2AServer` using the custom `MyAgentTaskManager`. This code snippet is intended to be part of the main entry point (`main` function) of the application, binding the task manager and an agent card to the server instance and starting it on a specified host and port.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/6-start-server.md#_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+# ...
+from google_a2a.common.server import A2AServer
+from my_project.task_manager import MyAgentTaskManager
+# ...
+def main(host, port):
+  # ...
+
+  task_manager = MyAgentTaskManager()
+  server = A2AServer(
+    agent_card=agent_card,
+    task_manager=task_manager,
+    host=host,
+    port=port,
+  )
+  server.start()
+```
+
+----------------------------------------
+
+TITLE: Send Task Message - A2A RPC
+DESCRIPTION: Sends a message to initiate or continue a task, returning the final task state synchronously after processing.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_0
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/send
+Type: Request/Response
+Params: TaskSendParams (id, sessionId, message, pushNotification?, historyLength?, metadata?)
+Result: Task (final state)
+```
+
+----------------------------------------
+
+TITLE: Send Task Message & Subscribe - A2A RPC
+DESCRIPTION: Sends a message and subscribes to real-time task updates via Server-Sent Events (SSE).
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_1
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/sendSubscribe
+Type: Request/Stream
+Params: TaskSendParams
+Result (stream events): TaskStatusUpdateEvent or TaskArtifactUpdateEvent (final event has final: true)
+```
+
+----------------------------------------
+
+TITLE: Streaming A2A Task Response Events (JSON)
+DESCRIPTION: Illustrates the event-based nature of a streaming A2A task response, where multiple JSON-RPC events are sent over the stream. These events provide real-time status updates (e.g., 'working', 'completed') and incrementally deliver artifacts, including the final text response with complete citation metadata.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_9
+
+LANGUAGE: JSON
+CODE:
+```
+{"jsonrpc":"2.0","id":"367d0ba9af97457890261ac29a0f6f5b","result":{"id":"373b26d64c5a4f0099fa906c6b7342d9","status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Parsing document..."}]},"timestamp":"2025-04-15T16:05:18.283682"},"final":false}}
+```
+
+LANGUAGE: JSON
+CODE:
+```
+{"jsonrpc":"2.0","id":"367d0ba9af97457890261ac29a0f6f5b","result":{"id":"373b26d64c5a4f0099fa906c6b7342d9","artifact":{"parts":[{"type":"text","text":"This file discusses the Transformer, a novel neural network architecture based solely on attention mechanisms, dispensing with recurrence and convolutions entirely [1]. The document compares the Transformer to recurrent and convolutional layers [2], details the model architecture [3], and presents results from machine translation and English constituency parsing tasks [4]."}],"metadata":{"1":["The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train. Our model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles, by over 2 BLEU. On the WMT 2014 English-to-French translation task, our model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature. We show that the Transformer generalizes well to other tasks by applying it successfully to English constituency parsing both with large and limited training data."],"2":["In this section we compare various aspects of self-attention layers to the recurrent and convolutional layers commonly used for mapping one variable-length sequence of symbol representations (x1, ..., xn) to another sequence of equal length (z1, ..., zn), with xi, zi ∈ Rd, such as a hidden layer in a typical sequence transduction encoder or decoder. Motivating our use of self-attention we consider three desiderata.",""],"3":["# 3 Model Architecture"],"4":["# 6   Results"]},"index":0,"append":false}}}
+```
+
+LANGUAGE: JSON
+CODE:
+```
+{"jsonrpc":"2.0","id":"367d0ba9af97457890261ac29a0f6f5b","result":{"id":"373b26d64c5a4f0099fa906c6b7342d9","status":{"state":"completed","timestamp":"2025-04-15T16:05:26.111314"},"final":true}}
+```
+
+----------------------------------------
+
+TITLE: Sample Agent Card JSON Configuration
+DESCRIPTION: This JSON object defines the metadata and capabilities of an agent within the A2A protocol. It includes details such as the agent's name, description, endpoint URL, provider information, version, capabilities (streaming, push notifications), authentication schemes, default input/output modes, and a list of supported skills with their descriptions, tags, examples, and I/O modes.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_5
+
+LANGUAGE: json
+CODE:
+```
+{
+  "name": "GeoSpatial Route Planner Agent",
+  "description": "Provides advanced route planning, traffic analysis, and custom map generation services. This agent can calculate optimal routes, estimate travel times considering real-time traffic, and create personalized maps with points of interest.",
+  "url": "https://georoute-agent.example.com/a2a/v1",
+  "provider": {
+    "organization": "Example Geo Services Inc.",
+    "url": "https://www.examplegeoservices.com"
+  },
+  "version": "1.2.0",
+  "documentationUrl": "https://docs.examplegeoservices.com/georoute-agent/api",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransitionHistory": false
+  },
+  "authentication": {
+    "schemes": ["OAuth2"],
+    "credentials": "{\"authorizationUrl\": \"https://auth.examplegeoservices.com/authorize\", \"tokenUrl\": \"https://auth.examplegeoservices.com/token\", \"scopes\": {\"route:plan\": \"Allows planning new routes.\", \"map:custom\": \"Allows creating and managing custom maps.\"}}"
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json", "image/png"],
+  "skills": [
+    {
+      "id": "route-optimizer-traffic",
+      "name": "Traffic-Aware Route Optimizer",
+      "description": "Calculates the optimal driving route between two or more locations, taking into account real-time traffic conditions, road closures, and user preferences (e.g., avoid tolls, prefer highways).",
+      "tags": ["maps", "routing", "navigation", "directions", "traffic"],
+      "examples": [
+        "Plan a route from '1600 Amphitheatre Parkway, Mountain View, CA' to 'San Francisco International Airport' avoiding tolls.",
+        "{\"origin\": {\"lat\": 37.422, \"lng\": -122.084}, \"destination\": {\"lat\": 37.7749, \"lng\": -122.4194}, \"preferences\": [\"avoid_ferries\"]}"
+      ],
+      "inputModes": ["application/json", "text/plain"],
+      "outputModes": [
+        "application/json",
+        "application/vnd.geo+json",
+        "text/html"
+      ]
+    },
+    {
+      "id": "custom-map-generator",
+      "name": "Personalized Map Generator",
+      "description": "Creates custom map images or interactive map views based on user-defined points of interest, routes, and style preferences. Can overlay data layers.",
+      "tags": ["maps", "customization", "visualization", "cartography"],
+      "examples": [
+        "Generate a map of my upcoming road trip with all planned stops highlighted.",
+        "Show me a map visualizing all coffee shops within a 1-mile radius of my current location."
+      ],
+      "inputModes": ["application/json"],
+      "outputModes": [
+        "image/png",
+        "image/jpeg",
+        "application/json",
+        "text/html"
+      ]
+    }
+  ]
+}
+```
+
+----------------------------------------
+
+TITLE: Visualizing Agent Flow with Mermaid Diagram
+DESCRIPTION: A sequence diagram illustrating the interaction flow between the A2A client, server, LangGraph agent, and Frankfurter API. It shows the complete information path, incomplete information flow requiring additional input, and streaming capabilities.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/langgraph/README.md#2025-04-21_snippet_0
+
+LANGUAGE: mermaid
+CODE:
+```
+sequenceDiagram
+    participant Client as A2A Client
+    participant Server as A2A Server
+    participant Agent as LangGraph Agent
+    participant API as Frankfurter API
+
+    Client->>Server: Send task with currency query
+    Server->>Agent: Forward query to currency agent
+
+    alt Complete Information
+        Agent->>API: Call get_exchange_rate tool
+        API->>Agent: Return exchange rate data
+        Agent->>Server: Process data & return result
+        Server->>Client: Respond with currency information
+    else Incomplete Information
+        Agent->>Server: Request additional input
+        Server->>Client: Set state to "input-required"
+        Client->>Server: Send additional information
+        Server->>Agent: Forward additional info
+        Agent->>API: Call get_exchange_rate tool
+        API->>Agent: Return exchange rate data
+        Agent->>Server: Process data & return result
+        Server->>Client: Respond with currency information
+    end
+
+    alt With Streaming
+        Note over Client,Server: Real-time status updates
+        Server->>Client: "Looking up exchange rates..."
+        Server->>Client: "Processing exchange rates..."
+        Server->>Client: Final result
+    end
+```
+
+----------------------------------------
+
+TITLE: Integrating Ollama Agent in Task Manager (Python)
+DESCRIPTION: Modifies the `MyAgentTaskManager` class to initialize the Ollama agent based on constructor parameters and uses the `run_ollama` function within the `on_send_task` method to generate a response if the agent is configured.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_5
+
+LANGUAGE: python
+CODE:
+```
+# ...
+from my_project.agent import create_ollama_agent, run_ollama
+
+class MyAgentTaskManager(InMemoryTaskManager):
+  def __init__(
+    self,
+    ollama_host: str,
+    ollama_model: typing.Union[None, str]
+  ):
+    super().__init__()
+    if ollama_model is not None:
+      self.ollama_agent = create_ollama_agent(
+        ollama_base_url=ollama_host,
+        ollama_model=ollama_model
+      )
+    else:
+      self.ollama_agent = None
+
+  async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
+    # ...
+    received_text = request.params.message.parts[0].text
+    response_text = f"on_send_task received: {received_text}"
+    if self.ollama_agent is not None:
+      response_text = await run_ollama(ollama_agent=self.ollama_agent, prompt=received_text)
+
+    task = await self._update_task(
+      task_id=task_id,
+      task_state=TaskState.COMPLETED,
+      response_text=response_text
+    )
+
+    # Send the response
+    return SendTaskResponse(id=request.id, result=task)
+
+  # ...
+```
+
+----------------------------------------
+
+TITLE: Client Requesting JSON Output (A2A)
+DESCRIPTION: Demonstrates an A2A client using the `tasks/send` method to request data. The `Part.metadata` field is used by convention (in v0.1.0) to hint at the desired output schema and MIME type (application/json) for the response.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_43
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-008",
+  "method": "tasks/send",
+  "params": {
+    "id": "task-gettickets-ccc",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "List my open IT support tickets created in the last week.",
+          "metadata": {
+            "desiredOutputMimeType": "application/json",
+            "desiredOutputSchemaRef": "https://schemas.example.com/supportTicketList_v1.json"
+            // This metadata is a convention, not strictly enforced by A2A spec
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining A2A Task Manager Interface Methods - Python
+DESCRIPTION: Shows the required method signatures for implementing the `InMemoryTaskManager` interface in `Google-A2A`. These methods handle incoming task requests (`on_send_task`) and task subscription requests (`on_send_task_subscribe`).
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/6-start-server.md#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+async def on_send_task(
+  self,
+  request: SendTaskRequest
+) -> SendTaskResponse:
+  """
+  This method queries or creates a task for the agent.
+  The caller will receive exactly one response.
+  """
+  pass
+
+async def on_send_task_subscribe(
+  self,
+  request: SendTaskStreamingRequest
+) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
+  """
+  This method subscribes the caller to future updates regarding a task.
+  The caller will receive a response and additionally receive subscription
+  updates over a session established between the client and the server
+  """
+  pass
+```
+
+----------------------------------------
+
+TITLE: Defining AgentCard Interface for A2A Server in TypeScript
+DESCRIPTION: This TypeScript interface defines the structure of an AgentCard object, which conveys essential information about an A2A Server. It includes details like the agent's name, description, service URL, version, provider information, documentation link, supported capabilities, authentication requirements, default input/output content types, and a list of offered skills.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_0
+
+LANGUAGE: typescript
+CODE:
+```
+// An AgentCard conveys key information about an A2A Server:
+// - Overall identity and descriptive details.
+// - Service endpoint URL.
+// - Supported A2A protocol capabilities (streaming, push notifications).
+// - Authentication requirements.
+// - Default input/output content types (MIME types).
+// - A list of specific skills the agent offers.
+interface AgentCard {
+  // Human-readable name of the agent (e.g., "Recipe Advisor Agent").
+  name: string;
+  // A human-readable description of the agent and its general purpose.
+  // [CommonMark](https://commonmark.org/) MAY be used for rich text formatting.
+  // (e.g., "This agent helps users find recipes, plan meals, and get cooking instructions.")
+  description?: string | null;
+  // The base URL endpoint for the agent's A2A service (where JSON-RPC requests are sent).
+  // Must be an absolute HTTPS URL for production (e.g., `https://agent.example.com/a2a/api`).
+  // HTTP MAY be used for local development/testing only.
+  url: string;
+  // Information about the organization or entity providing the agent.
+  provider?: AgentProvider | null;
+  // Version string for the agent or its A2A implementation
+  // (format is defined by the provider, e.g., "1.0.0", "2023-10-26-beta").
+  version: string;
+  // URL pointing to human-readable documentation for the agent (e.g., API usage, detailed skill descriptions).
+  documentationUrl?: string | null;
+  // Specifies optional A2A protocol features supported by this agent.
+  capabilities: AgentCapabilities;
+  // Authentication schemes required to interact with the agent's `url` endpoint.
+  // If `null`, omitted, or an empty `schemes` array, no A2A-level authentication is explicitly advertised
+  // (NOT recommended for production; other security like network ACLs might still apply).
+  authentication?: AgentAuthentication | null;
+  // Array of [MIME types](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types)
+  // the agent generally accepts as input across all skills, unless overridden by a specific skill.
+  // Default if omitted: `["text/plain"]`. Example: `["text/plain", "image/png"]`.
+  defaultInputModes?: string[];
+  // Array of MIME types the agent generally produces as output across all skills, unless overridden by a specific skill.
+  // Default if omitted: `["text/plain"]`. Example: `["text/plain", "application/json"]`.
+  defaultOutputModes?: string[];
+  // An array of specific skills or capabilities the agent offers.
+  // Must contain at least one skill if the agent is expected to perform actions beyond simple presence.
+  skills: AgentSkill[];
+}
+```
+
+----------------------------------------
+
+TITLE: Defining ContactInfo data structure in Python
+DESCRIPTION: Python code defining the ContactInfo class using Pydantic BaseModel. It specifies the structure of the extracted contact information, including name, email, phone, organization, and role fields.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/marvin/README.md#2025-04-21_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+class ContactInfo(BaseModel):
+    name: str = Field(description="Person's first and last name")
+    email: EmailStr
+    phone: str = Field(description="standardized phone number")
+    organization: str | None = Field(None, description="org if mentioned")
+    role: str | None = Field(None, description="title or role if mentioned")
+```
+
+----------------------------------------
+
+TITLE: Streaming Messages and Requesting Input in Python A2A Agent
+DESCRIPTION: This asynchronous method streams a predefined sequence of three messages, updating the task status to 'WORKING' after each message. After streaming, it changes the task status to 'INPUT_REQUIRED' and sends a message asking the user if they want more messages. It uses TaskStatusUpdateEvent to signal status changes and enqueue_events_for_sse to send these updates.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/8-agent-capabilities.md#_snippet_3
+
+LANGUAGE: Python
+CODE:
+```
+async def _stream_3_messages(self, request: SendTaskStreamingRequest):
+    # ...
+    async for message in messages:
+      # ...
+      # is_last = message == messages[-1] # Delete this line
+      task_state = TaskState.WORKING
+      # ...
+      task_update_event = TaskStatusUpdateEvent(
+        id=request.params.id,
+        status=task_status,
+        final=False,
+      )
+      # ...
+
+    ask_message = Message(
+      role="agent",
+      parts=[
+        {
+          "type": "text",
+          "text": "Would you like more messages? (Y/N)"
+        }
+      ]
+    )
+    task_update_event = TaskStatusUpdateEvent(
+      id=request.params.id,
+      status=TaskStatus(
+        state=TaskState.INPUT_REQUIRED,
+        message=ask_message
+      ),
+      final=True,
+    )
+    await self.enqueue_events_for_sse(
+      request.params.id,
+      task_update_event
+    )
+```
+
+LANGUAGE: Python
+CODE:
+```
+async def on_send_task_subscribe(
+    self,
+    request: SendTaskStreamingRequest
+  ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
+    task_id = request.params.id
+    is_new_task = task_id in self.tasks
+    # Upsert a task stored by InMemoryTaskManager
+    await self.upsert_task(request.params)
+
+    received_text = request.params.message.parts[0].text
+    sse_event_queue = await self.setup_sse_consumer(task_id=task_id)
+    if not is_new_task and received_text == "N":
+      task_update_event = TaskStatusUpdateEvent(
+        id=request.params.id,
+        status=TaskStatus(
+          state=TaskState.COMPLETED,
+          message=Message(
+            role="agent",
+            parts=[
+              {
+                "type": "text",
+                "text": "All done!"
+              }
+            ]
+          )
+        ),
+        final=True,
+      )
+      await self.enqueue_events_for_sse(
+        request.params.id,
+        task_update_event,
+      )
+    else:
+      asyncio.create_task(self._stream_3_messages(request))
+
+    return self.dequeue_events_for_sse(
+      request_id=request.id,
+      task_id=task_id,
+      sse_event_queue=sse_event_queue,
+    )
+```
+
+----------------------------------------
+
+TITLE: A2A Synchronous Request for Currency Exchange Rate
+DESCRIPTION: Example JSON request and response for a synchronous query to convert USD to INR using the A2A protocol's tasks/send method, demonstrating a complete single-turn interaction.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/langgraph/README.md#2025-04-21_snippet_2
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tasks/send",
+  "params": {
+    "id": "129",
+    "sessionId": "8f01f3d172cd4396a0e535ae8aec6687",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "How much is the exchange rate for 1 USD to INR?"
+        }
+      ]
+    }
+  }
+}
+```
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "id": "129",
+    "status": {
+      "state": "completed",
+      "timestamp": "2025-04-02T16:53:29.301828"
+    },
+    "artifacts": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "The exchange rate for 1 USD to INR is 85.49."
+          }
+        ],
+        "index": 0
+      }
+    ],
+    "history": []
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Basic A2A Client Usage in TypeScript
+DESCRIPTION: Demonstrates how to initialize the A2AClient and use it to send and retrieve tasks. The example shows importing necessary types, creating a client instance, sending a task with a simple text message, and querying task status using the client's methods.
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/src/client/README.md#2025-04-21_snippet_0
+
+LANGUAGE: typescript
+CODE:
+```
+import { A2AClient, Task, TaskQueryParams, TaskSendParams } from "./client"; // Import necessary types
+import { v4 as uuidv4 } from "uuid"; // Example for generating task IDs
+
+const client = new A2AClient("http://localhost:41241"); // Replace with your server URL
+
+async function run() {
+  try {
+    // Send a simple task (pass only params)
+    const taskId = uuidv4();
+    const sendParams: TaskSendParams = {
+      id: taskId,
+      message: { role: "user", parts: [{ text: "Hello, agent!", type: "text" }] },
+    };
+    // Method now returns Task | null directly
+    const taskResult: Task | null = await client.sendTask(sendParams);
+    console.log("Send Task Result:", taskResult);
+
+    // Get task status (pass only params)
+    const getParams: TaskQueryParams = { id: taskId };
+    // Method now returns Task | null directly
+    const getTaskResult: Task | null = await client.getTask(getParams);
+    console.log("Get Task Result:", getTaskResult);
+  } catch (error) {
+    console.error("A2A Client Error:", error);
+  }
+}
+
+run();
+```
+
+----------------------------------------
+
+TITLE: Creating an Agent Skill (Python)
+DESCRIPTION: Python code demonstrating how to instantiate an AgentSkill object using the google_a2a library, setting its properties, and printing the resulting object.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/4-agent-skills.md#_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+import google_a2a
+from google_a2a.common.types import AgentSkill
+
+def main():
+  skill = AgentSkill(
+    id="my-project-echo-skill",
+    name="Echo Tool",
+    description="Echos the input given",
+    tags=["echo", "repeater"],
+    examples=["I will see this echoed back to me"],
+    inputModes=["text"],
+    outputModes=["text"],
+  )
+  print(skill)
+
+if __name__ == "__main__":
+  main()
+```
+
+----------------------------------------
+
+TITLE: Defining Artifact Interface in TypeScript
+DESCRIPTION: Defines the TypeScript interface for the `Artifact` object, which represents a tangible output from an agent task. It includes properties for naming, describing, and structuring the artifact's content (`parts`), as well as fields for managing streaming updates (`index`, `append`, `lastChunk`) and arbitrary metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_14
+
+LANGUAGE: typescript
+CODE:
+```
+interface Artifact {
+  // A descriptive name for the artifact (e.g., "Quarterly Sales Report.pdf", "Generated Logo Design", "analysis_results.json").
+  // This name might be used by the client for display or identification.
+  name?: string | null;
+  // A human-readable description of the artifact. [CommonMark](https://commonmark.org/) MAY be used.
+  description?: string | null;
+  // An array containing the content of the artifact, broken down into one or more parts.
+  // An artifact MUST contain at least one part.
+  // Using multiple parts allows for complex artifacts (e.g., a report with embedded images or data tables).
+  parts: Part[];
+  // A non-negative integer index for ordering artifacts or identifying artifact chunks during streaming.
+  // Multiple artifacts (or artifact updates) can share the same index if they represent parts of the same logical output
+  // that are being streamed or delivered separately.
+  // Default: 0 if omitted.
+  index?: number;
+  // Used with streaming (`TaskArtifactUpdateEvent`):
+  // If `true`, indicates this update's `parts` should be appended to the content of the artifact
+  // currently identified by the same `index` value. This is useful for streaming textual data or
+  // appending elements to a list in a `DataPart`.
+  // If `false` or `null` (or omitted), this update replaces the artifact content at the given `index`.
+  // This field is typically `false` for the first chunk of a streamed artifact.
+  append?: boolean | null;
+  // Used with streaming (`TaskArtifactUpdateEvent`):
+  // If `true`, indicates this is the final update/chunk for the artifact at this `index`.
+  // Signals the end of a streamed file or data structure.
+  lastChunk?: boolean | null;
+  // Arbitrary key-value metadata associated with the artifact.
+  // Keys SHOULD be strings; values can be any valid JSON type.
+  // Useful for creation timestamps, versioning info, checksums, etc.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Server Response: Task Completed with Artifact - JSON
+DESCRIPTION: This JSON object is the server's final response after successfully processing the client's input. It indicates the task is 'completed', provides a confirmation message, and includes an 'artifacts' section containing structured data about the booked flight, such as confirmation ID, locations, and dates.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_36
+
+LANGUAGE: JSON
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-004",
+  "result": {
+    "id": "task-flightbook-789",
+    "status": {
+      "state": "completed",
+      "message": {
+        "role": "agent",
+        "parts": [
+          {
+            "type": "text",
+            "text": "Okay, I've found a flight for you. Confirmation XYZ123. Details are in the artifact."
+          }
+        ]
+      },
+      "timestamp": "2024-03-15T10:11:00Z"
+    },
+    "artifacts": [
+      {
+        "name": "FlightItinerary.json",
+        "parts": [
+          {
+            "type": "data",
+            "data": {
+              "confirmationId": "XYZ123",
+              "from": "JFK",
+              "to": "LHR",
+              "departure": "2024-10-10T18:00:00Z",
+              "arrival": "2024-10-11T06:00:00Z",
+              "returnDeparture": "..."
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Synchronous A2A Task Response (JSON)
+DESCRIPTION: Shows the structure of a synchronous JSON-RPC response for a completed A2A task. It indicates the task's completion status, timestamp, and includes an array of artifacts. The primary artifact contains the text output with inline citations and a metadata object providing the full source text for those citations.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_6
+
+LANGUAGE: JSON
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "id": "129",
+    "status": {
+      "state": "completed",
+      "timestamp": "2025-04-02T16:53:29.301828"
+    },
+    "artifacts": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "This file is about XYZ... [1]"
+          }
+        ],
+        "metadata": {
+            "1": ["Text for citation 1"]
+        }
+        "index": 0,
+      }
+    ],
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Agent Discovery - A2A Concept
+DESCRIPTION: Process by which clients find agents and their capabilities, typically by fetching the AgentCard JSON from a well-known location.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_19
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Agent Discovery
+Description: Clients find agents and capabilities via AgentCard JSON (e.g., from /.well-known/agent.json).
+```
+
+----------------------------------------
+
+TITLE: Creating and Running Ollama Agent (Python)
+DESCRIPTION: Defines two core functions for Ollama integration: `create_ollama_agent` initializes a `ChatOllama` model and a `react` agent, and `run_ollama` asynchronously invokes the agent with a prompt and extracts the final response.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_4
+
+LANGUAGE: python
+CODE:
+```
+from langchain_ollama import ChatOllama
+from langgraph.prebuilt import create_react_agent
+from langgraph.graph.graph import CompiledGraph
+
+def create_ollama_agent(ollama_base_url: str, ollama_model: str):
+  ollama_chat_llm = ChatOllama(
+    base_url=ollama_base_url,
+    model=ollama_model,
+    temperature=0.2
+  )
+  agent = create_react_agent(ollama_chat_llm, tools=[])
+  return agent
+
+async def run_ollama(ollama_agent: CompiledGraph, prompt: str):
+  agent_response = await ollama_agent.ainvoke(
+    {"messages": prompt }
+  )
+  message = agent_response["messages"][-1].content
+  return str(message)
+```
+
+----------------------------------------
+
+TITLE: Implementing Streaming Task Handling (Python)
+DESCRIPTION: Shows the implementation of `_stream_3_messages` to simulate streaming updates and `on_send_task_subscribe` to handle incoming streaming requests, set up SSE, start the streaming task, and return the SSE consumer.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/8-agent-capabilities.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+import asyncio
+# ...
+class MyAgentTaskManager(InMemoryTaskManager):
+  # ...
+  async def _stream_3_messages(self, request: SendTaskStreamingRequest):
+    task_id = request.params.id
+    received_text = request.params.message.parts[0].text
+
+    text_messages = ["one", "two", "three"]
+    for text in text_messages:
+      parts = [
+        {
+          "type": "text",
+          "text": f"{received_text}: {text}",
+        }
+      ]
+      message = Message(role="agent", parts=parts)
+      is_last = text == text_messages[-1]
+      task_state = TaskState.COMPLETED if is_last else TaskState.WORKING
+      task_status = TaskStatus(
+        state=task_state,
+        message=message
+      )
+      task_update_event = TaskStatusUpdateEvent(
+        id=request.params.id,
+        status=task_status,
+        final=is_last,
+      )
+      await self.enqueue_events_for_sse(
+        request.params.id,
+        task_update_event
+      )
+
+  async def on_send_task_subscribe(
+    self,
+    request: SendTaskStreamingRequest
+  ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
+    # Upsert a task stored by InMemoryTaskManager
+    await self.upsert_task(request.params)
+
+    task_id = request.params.id
+    # Create a queue of work to be done for this task
+    sse_event_queue = await self.setup_sse_consumer(task_id=task_id)
+
+    # Start the asynchronous work for this task
+    asyncio.create_task(self._stream_3_messages(request))
+
+    # Tell the client to expect future streaming responses
+    return self.dequeue_events_for_sse(
+      request_id=request.id,
+      task_id=task_id,
+      sse_event_queue=sse_event_queue,
+    )
+```
+
+----------------------------------------
+
+TITLE: Sending Multi-turn Follow-up A2A Task Request (HTTP/JSON)
+DESCRIPTION: Illustrates sending a subsequent message within an established session (`sessionId`) for a multi-turn conversation. This request sends only a new text message, relying on the provided session ID for the API to maintain the conversational context from previous turns, including the initial file upload.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_7
+
+LANGUAGE: HTTP/JSON
+CODE:
+```
+POST http://localhost:10010
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tasks/send",
+  "params": {
+    "id": "130",
+    "sessionId": "8f01f3d172cd4396a0e535ae8aec6687",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What about thing X?"
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining SendTaskStreamingResponse Interface in TypeScript
+DESCRIPTION: Defines the TypeScript interface for the `SendTaskStreamingResponse` object. This object is a JSON-RPC response used in Server-Sent Events (SSE) streams for task updates. It extends `JSONRPCResponse` and specifies the `id` field must match the original request, the `result` field contains either a `TaskStatusUpdateEvent` or `TaskArtifactUpdateEvent`, and the `error` field is typically null but may contain a `JSONRPCError` on fatal stream errors.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_20
+
+LANGUAGE: typescript
+CODE:
+```
+interface SendTaskStreamingResponse extends JSONRPCResponse {
+  // The `id` MUST match the `id` from the originating `tasks/sendSubscribe` (or `tasks/resubscribe`)
+  // JSON-RPC request that established this SSE stream.
+  id: string | number; // Overrides JSONRPCResponse 'id' type for clarity and to emphasize it matches the original request.
+  // The `result` field contains the actual event payload for this streaming update.
+  // It will be either a TaskStatusUpdateEvent or a TaskArtifactUpdateEvent.
+  result: TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
+  // For streaming events, `error` is typically `null` or absent.
+  // If a fatal error occurs that terminates the stream, the server MAY send a final
+  // SSE event with this `error` field populated before closing the connection.
+  error?: JSONRPCError | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Sending Initial A2A Task Request (HTTP/JSON)
+DESCRIPTION: Demonstrates the structure of a synchronous JSON-RPC POST request to initiate an A2A task. It sends an initial message containing both plain text and a binary file (`attention.pdf`), specifying the task method (`tasks/send`), a session ID for conversation context, and accepted output modes.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_5
+
+LANGUAGE: HTTP/JSON
+CODE:
+```
+POST http://localhost:10010
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "tasks/send",
+  "params": {
+    "id": "129",
+    "sessionId": "8f01f3d172cd4396a0e535ae8aec6687",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What does this file talk about?"
+        },
+        {
+            "type": "file",
+            "file": {
+                "bytes": "...",
+                "name": "attention.pdf"
+            }
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining TaskStatus Interface in TypeScript
+DESCRIPTION: This TypeScript interface defines the structure of a `TaskStatus` object, representing the current state and associated context of a `Task`. It includes fields for the task's lifecycle state (`TaskState`), an optional message providing context (like progress or errors), and a timestamp indicating when the status was recorded.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_7
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskStatus {
+  // The current lifecycle state of the task.
+  state: TaskState;
+  // An optional message associated with the current status.
+  // This could be a progress update from the agent, a prompt for more input,
+  // a summary of the final result, or an error message.
+  message?: Message | null;
+  // The date and time (UTC is STRONGLY recommended) when this status was recorded by the server.
+  // Format: ISO 8601 `date-time` string (e.g., "2023-10-27T10:00:00Z").
+  timestamp?: string | null;
+}
+```
+
+----------------------------------------
+
+TITLE: A2A Multi-turn Conversation for Currency Exchange
+DESCRIPTION: A sequence of JSON requests and responses demonstrating a multi-turn conversation where the agent requests additional information (target currency) before providing the exchange rate.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/langgraph/README.md#2025-04-21_snippet_3
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tasks/send",
+  "params": {
+    "id": "130",
+    "sessionId": "a9bb617f2cd94bd585da0f88ce2ddba2",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "How much is the exchange rate for 1 USD?"
+        }
+      ]
+    }
+  }
+}
+```
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "id": "130",
+    "status": {
+      "state": "input-required",
+      "message": {
+        "role": "agent",
+        "parts": [
+          {
+            "type": "text",
+            "text": "Which currency do you want to convert to? Also, do you want the latest exchange rate or a specific date?"
+          }
+        ]
+      },
+      "timestamp": "2025-04-02T16:57:02.336787"
+    },
+    "history": []
+  }
+}
+```
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "tasks/send",
+  "params": {
+    "id": "130",
+    "sessionId": "a9bb617f2cd94bd585da0f88ce2ddba2",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "CAD"
+        }
+      ]
+    }
+  }
+}
+```
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "id": "130",
+    "status": {
+      "state": "completed",
+      "timestamp": "2025-04-02T16:57:40.033328"
+    },
+    "artifacts": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "The current exchange rate is 1 USD = 1.4328 CAD."
+          }
+        ],
+        "index": 0
+      }
+    ],
+    "history": []
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: TextPart Object Interface (TypeScript)
+DESCRIPTION: Defines the structure for a content part within a Message or Artifact that specifically conveys plain textual content. It includes a discriminator type, the text string itself, and optional part-specific metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_10
+
+LANGUAGE: typescript
+CODE:
+```
+interface TextPart {
+  type: 'text'; // Discriminator
+  text: string; // The actual textual content.
+  metadata?: Record<string, any> | null; // Optional metadata (e.g., language, formatting hints if any)
+}
+```
+
+----------------------------------------
+
+TITLE: Forms - A2A Concept
+DESCRIPTION: Mechanism for requesting and submitting structured data using DataPart within Messages/Artifacts.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_25
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Forms
+Description: Structured data requested/submitted using DataPart within Messages/Artifacts (demonstrated in ADK sample).
+```
+
+----------------------------------------
+
+TITLE: Task Lifecycle - A2A Concept
+DESCRIPTION: Describes the states a task progresses through, from submission to completion or failure.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_20
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Task Lifecycle
+Description: Tasks progress through states defined in TaskState (submitted -> working -> [input-required] -> completed/canceled/failed).
+```
+
+----------------------------------------
+
+TITLE: Communication - A2A Concept
+DESCRIPTION: Explains the structure of messages and artifacts used for communication, composed of parts.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_21
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Communication
+Description: Uses Message objects with Parts (text, file, data) for input; Task outputs are Artifacts with Parts.
+```
+
+----------------------------------------
+
+TITLE: Receiving Completed Task Response (Synchronous) - JSON
+DESCRIPTION: JSON-RPC response for a task initiated via tasks/send that has completed. It includes the original request ID and the result object containing the task ID, session ID, status (state: "completed", agent message, timestamp), and artifacts with the final output.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_26
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-001",
+  "result": {
+    "id": "task-abc-123",
+    "sessionId": "session-xyz-789",
+    "status": {
+      "state": "completed",
+      "message": {
+        "role": "agent",
+        "parts": [
+          {
+            "type": "text",
+            "text": "The capital of France is Paris."
+          }
+        ]
+      },
+      "timestamp": "2024-03-15T10:00:05Z"
+    },
+    "artifacts": [
+      {
+        "name": "Answer",
+        "index": 0,
+        "parts": [
+          {
+            "type": "text",
+            "text": "The capital of France is Paris."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Sending Basic Task Request (Synchronous) - JSON
+DESCRIPTION: JSON-RPC request to the tasks/send method for initiating a task expected to complete quickly. It includes a unique request ID, the method name, and parameters specifying the task ID, session ID, and the user message with text content.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_25
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-001",
+  "method": "tasks/send",
+  "params": {
+    "id": "task-abc-123",
+    "sessionId": "session-xyz-789",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What is the capital of France?"
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Define Agent Skill and CLI (Python)
+DESCRIPTION: This Python snippet initializes logging, sets up a command-line interface using `click` to accept host and port arguments, and defines an `AgentSkill` object representing an 'Echo Tool' with specified properties like ID, name, description, tags, examples, and input/output modes.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/5-add-agent-card.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+import logging
+
+import click
+from dotenv import load_dotenv
+import google_a2a
+from google_a2a.common.types import AgentSkill, AgentCapabilities, AgentCard
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@click.command()
+@click.option("--host", default="localhost")
+@click.option("--port", default=10002)
+def main(host, port):
+  skill = AgentSkill(
+    id="my-project-echo-skill",
+    name="Echo Tool",
+    description="Echos the input given",
+    tags=["echo", "repeater"],
+    examples=["I will see this echoed back to me"],
+    inputModes=["text"],
+    outputModes=["text"],
+  )
+  logging.info(skill)
+
+if __name__ == "__main__":
+  main()
+```
+
+----------------------------------------
+
+TITLE: TaskState Enum Definition (TypeScript)
+DESCRIPTION: Defines the possible lifecycle states a Task can transition through. States indicate whether a task is pending, active, paused for input, completed, canceled, failed, or has an unknown status.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_8
+
+LANGUAGE: typescript
+CODE:
+```
+type TaskState =
+  | 'submitted' // Task received by server, acknowledged, but processing has not yet actively started.
+  | 'working' // Task is actively being processed by the agent.
+  | 'input-required' // Agent requires additional input from the client/user to proceed. (Task is paused)
+  | 'completed' // Task finished successfully. (Terminal state)
+  | 'canceled' // Task was canceled by the client or potentially by the server. (Terminal state)
+  | 'failed' // Task terminated due to an error during processing. (Terminal state)
+  | 'unknown'; // The state of the task cannot be determined (e.g., task ID invalid or expired). (Effectively a terminal state from client's PoV for that ID)
+```
+
+----------------------------------------
+
+TITLE: Defining TaskSendParams Interface (TypeScript)
+DESCRIPTION: Defines the structure of the parameters object used when sending a message to an agent via the `tasks/send` or `tasks/sendSubscribe` endpoints. It includes fields for task identification, session grouping, the message content itself, optional push notification configuration, history request length, and arbitrary metadata. Requires `Message` and potentially `PushNotificationConfig` objects.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_19
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskSendParams {
+  // The ID for the task.
+  // - If this is the first message for a new task, the client generates this ID.
+  // - If this message continues an existing task (e.g., providing more input after an `input-required` state),
+  //   this ID MUST match the ID of the existing task.
+  id: string;
+  // Optional client-generated session ID to group this task with others.
+  sessionId?: string | null;
+  // The message to send to the agent. The `role` within this message is typically "user".
+  message: Message;
+  // Optional: If initiating a new task, the client MAY include push notification configuration.
+  // If provided for an existing task, server behavior (e.g., update config, ignore) is server-dependent.
+  // Requires `AgentCard.capabilities.pushNotifications: true`.
+  pushNotification?: PushNotificationConfig | null;
+  // Optional: If a positive integer `N` is provided, the server SHOULD include the last `N` messages
+  // (chronologically) of the task's history in the `Task.history` field of the response.
+  // If `0`, `null`, or omitted, no history is explicitly requested (server MAY still include some by default).
+  historyLength?: number | null;
+  // Arbitrary metadata for this specific `tasks/send` request.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Sending Streaming Task Request (SSE) - JSON
+DESCRIPTION: JSON-RPC request to the tasks/sendSubscribe method to initiate a task and receive incremental updates via Server-Sent Events (SSE). It includes a unique request ID, the method name, and parameters specifying the task ID and the user message with text content.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_27
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-002",
+  "method": "tasks/sendSubscribe",
+  "params": {
+    "id": "task-story-456",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Write a very short story about a curious robot exploring Mars."
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Example A2A Synchronous Request (JSON)
+DESCRIPTION: A JSON-RPC request body for sending a synchronous task (`tasks/send`) to the A2A agent. It includes a user message asking for a currency conversion.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_9
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 33,
+  "method": "tasks/send",
+  "params": {
+    "id": "3",
+    "sessionId": "1aab49f1e85c499da48c2124f4ceee4d",
+    "acceptedOutputModes": ["text"],
+    "message": {
+      "role": "user",
+      "parts": [
+        { "type": "text", "text": "How much is 1 USD to EUR?" }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining Task Interface in TypeScript
+DESCRIPTION: This TypeScript interface defines the structure of a `Task` object, which encapsulates a unit of work processed by the A2A Server. It includes fields for a unique ID, optional session ID, current status (`TaskStatus`), an array of generated artifacts, an optional history of messages, and arbitrary metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_6
+
+LANGUAGE: typescript
+CODE:
+```
+interface Task {
+  // A unique identifier for the task. This ID is typically generated by the client
+  // when initiating the task and MUST be used by the server to refer to this task.
+  // It should be sufficiently unique (e.g., a UUID v4).
+  id: string;
+  // An optional, client-generated identifier used to group related tasks into a logical session.
+  // Useful for maintaining context across multiple, sequential, or related tasks.
+  sessionId?: string | null;
+  // The current status of the task, including its lifecycle state, an optional associated message,
+  // and a timestamp.
+  status: TaskStatus;
+  // An array of outputs (artifacts) generated by the agent for this task.
+  // This array can be populated incrementally, especially during streaming.
+  // Artifacts represent the tangible results of the task.
+  artifacts?: Artifact[] | null;
+  // An optional array of recent messages exchanged within this task,
+  // ordered chronologically (oldest first).
+  // This history is included if requested by the client via the `historyLength` parameter
+  // in `TaskSendParams` or `TaskQueryParams`.
+  history?: Message[] | null;
+  // Arbitrary key-value metadata associated with the task.
+  // Keys SHOULD be strings; values can be any valid JSON type (string, number, boolean, array, object).
+  // This can be used for application-specific data, tracing info, etc.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Receiving Streaming Artifact Chunk (Last) - SSE
+DESCRIPTION: An SSE event delivering the final part of a task artifact. The 'data' field contains a JSON-RPC payload with the task ID and an artifact object including name, index, "append": true, "lastChunk": true indicating this is the final chunk for this artifact, and parts with the text chunk.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_31
+
+LANGUAGE: sse
+CODE:
+```
+id: sse-evt-104
+event: message
+data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-story-456","artifact":{"name":"MarsStory.txt","index":0,"append":true,"lastChunk":true,"parts":[{"type":"text","text":"Olympus Mons loomed, a silent giant, as Unit 734 beeped excitedly."}]}}}
+```
+
+----------------------------------------
+
+TITLE: Server Response: Input Required - JSON
+DESCRIPTION: This JSON object is the server's response to the initial client request. It indicates that the task requires more input ('state': 'input-required') and includes an agent message asking for necessary details like destination, origin, and preferred travel dates.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_34
+
+LANGUAGE: JSON
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-003",
+  "result": {
+    "id": "task-flightbook-789",
+    "status": {
+      "state": "input-required",
+      "message": {
+        "role": "agent",
+        "parts": [
+          {
+            "type": "text",
+            "text": "Sure, I can help with that! Where would you like to fly to, and from where? Also, what are your preferred travel dates?"
+          }
+        ]
+      },
+      "timestamp": "2024-03-15T10:10:00Z"
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Example A2A Synchronous Response (JSON)
+DESCRIPTION: A JSON-RPC response body from the A2A agent for a synchronous task. It shows the task status ("completed"), the result artifact (the currency conversion), and an empty history.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_10
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 33,
+  "result": {
+    "id": "3",
+    "status": {
+      "state": "completed",
+      "timestamp": "2025-04-01T16:53:29.301828"
+    },
+    "artifacts": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "1 USD is approximately 0.88137 EUR."
+          }
+        ],
+        "index": 0
+      }
+    ],
+    "history": []
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Receiving Streaming Artifact Chunk (Append) - SSE
+DESCRIPTION: An SSE event delivering a subsequent part of a task artifact. The 'data' field contains a JSON-RPC payload with the task ID and an artifact object including name, index, "append": true indicating it should be added to the previous chunk, and parts with the text chunk.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_30
+
+LANGUAGE: sse
+CODE:
+```
+id: sse-evt-103
+event: message
+data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-story-456","artifact":{"name":"MarsStory.txt","index":0,"append":true,"parts":[{"type":"text","text":"Its mission: to find the source of a peculiar signal. "}]}}}
+```
+
+----------------------------------------
+
+TITLE: A2A Streaming Request and Response for Currency Exchange
+DESCRIPTION: Example of using the tasks/sendSubscribe method to enable streaming responses, showing real-time status updates during processing and the final result with incremental updates.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/langgraph/README.md#2025-04-21_snippet_4
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "method": "tasks/sendSubscribe",
+  "params": {
+    "id": "131",
+    "sessionId": "cebd704d0ddd4e8aa646aeb123d60614",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "How much is 100 USD in GBP?"
+        }
+      ]
+    }
+  }
+}
+```
+
+LANGUAGE: json
+CODE:
+```
+data: {"jsonrpc":"2.0","id":12,"result":{"id":"131","status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Looking up the exchange rates..."}]},"timestamp":"2025-04-02T16:59:34.578939"},"final":false}}
+
+data: {"jsonrpc":"2.0","id":12,"result":{"id":"131","status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Processing the exchange rates.."}]},"timestamp":"2025-04-02T16:59:34.737052"},"final":false}}
+
+data: {"jsonrpc":"2.0","id":12,"result":{"id":"131","artifact":{"parts":[{"type":"text","text":"Based on the current exchange rate, 1 USD is equivalent to 0.77252 GBP. Therefore, 100 USD would be approximately 77.252 GBP."}],"index":0,"append":false}}}
+
+data: {"jsonrpc":"2.0","id":12,"result":{"id":"131","status":{"state":"completed","timestamp":"2025-04-02T16:59:35.331844"},"final":true}}
+```
+
+----------------------------------------
+
+TITLE: Running Local Ollama Server (Bash)
+DESCRIPTION: Command to start the Ollama server locally. This makes the Ollama API available for applications to use. Includes a note about potential errors if the server is already running.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+ollama serve
+```
+
+----------------------------------------
+
+TITLE: Running A2A CLI and Interacting with Agent
+DESCRIPTION: This bash command executes the A2A command-line interface tool, connecting to an agent server running locally. It demonstrates the interaction flow, showing how the agent streams messages, prompts for input, and completes the task based on user response. The output displays the JSON status updates received from the agent.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/8-agent-capabilities.md#_snippet_4
+
+LANGUAGE: Bash
+CODE:
+```
+$ uv run google-a2a-cli --agent http://localhost:10002
+=========  starting a new task ========
+
+What do you want to send to the agent? (:q or quit to exit): Streaming?
+
+"status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Streaming?: one"}]}}
+"status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Streaming?: two"}]}}
+"status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Streaming?: three"}]}}
+"status":{"state":"input-required","message":{"role":"agent","parts":[{"type":"text","text":"Would you like more messages? (Y/N)"}]}}
+
+What do you want to send to the agent? (:q or quit to exit): N
+
+"status":{"state":"completed","message":{"role":"agent","parts":[{"type":"text","text":"All done!"}]}}
+```
+
+----------------------------------------
+
+TITLE: Running A2A CLI to Interact with Server (Bash)
+DESCRIPTION: Command to start the A2A command-line interface, connecting to the running A2A server instance. Allows sending tasks to the server.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_7
+
+LANGUAGE: bash
+CODE:
+```
+uv run google-a2a-cli --agent http://localhost:10002
+```
+
+----------------------------------------
+
+TITLE: Message Object Interface (TypeScript)
+DESCRIPTION: Represents a single communication turn or piece of contextual information within a Task. Messages are used for instructions, prompts, replies, and status updates, containing a sender role, content parts, and optional metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_9
+
+LANGUAGE: typescript
+CODE:
+```
+interface Message {
+  // Indicates the sender of the message:
+  // "user" for messages originating from the A2A Client (acting on behalf of an end-user or system).
+  // "agent" for messages originating from the A2A Server (the remote agent).
+  role: 'user' | 'agent';
+  // An array containing the content of the message, broken down into one or more parts.
+  // A message MUST contain at least one part.
+  // Using multiple parts allows for rich, multi-modal content (e.g., text accompanying an image).
+  parts: Part[];
+  // Arbitrary key-value metadata associated with the message.
+  // Keys SHOULD be strings; values can be any valid JSON type.
+  // Useful for timestamps, source identifiers, language codes, etc.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: TypeScript Interface for tasks/get Request Parameters
+DESCRIPTION: Defines the structure for the `params` object used in the `tasks/get` JSON-RPC method. It includes the required task ID, an optional history length for retrieving task messages, and optional request-specific metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_23
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskQueryParams {
+  // The ID of the task to retrieve.
+  id: string;
+  // Optional: If a positive integer `N` is provided, the server SHOULD include the last `N` messages
+  // (chronologically) of the task's history in the `Task.history` field of the response.
+  // If `0`, `null`, or omitted, no history is explicitly requested.
+  historyLength?: number | null;
+  // Arbitrary metadata for this specific `tasks/get` request.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Server Task Acknowledgement (JSON)
+DESCRIPTION: Server response confirming receipt and initial status of a submitted task. Indicates the task ID and its current state (`submitted` or `working`) with a timestamp.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_38
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-005",
+  "result": {
+    "id": "task-reportgen-aaa",
+    "status": { "state": "submitted", "timestamp": "2024-03-15T11:00:00Z" }
+    
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining Task Status Update Event Interface (TypeScript)
+DESCRIPTION: This interface defines the structure of an event object that carries information about a change in a task's status during streaming. It is one of the possible result types in a SendTaskStreamingResponse. It includes the task ID, the new status object, an optional flag indicating if it's the final update, and optional metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_21
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskStatusUpdateEvent {
+  // The ID of the task being updated. This MUST match the `TaskSendParams.id`
+  // from the `tasks/sendSubscribe` request that initiated this stream.
+  id: string;
+  // The new status object for the task.
+  status: TaskStatus;
+  // If `true`, this `TaskStatusUpdateEvent` signifies the terminal status update for the current
+  // `tasks/sendSubscribe` interaction cycle. This means the task has reached a state like
+  // `completed`, `failed`, `canceled`, or `input-required`, and the server does not expect to send
+  // more updates for *this specific* `sendSubscribe` request. The server typically closes the SSE
+  // connection after sending an event with `final: true`.
+  // Default: `false` if omitted.
+  final?: boolean;
+  // Arbitrary metadata for this specific status update event.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Task Status Update Event - A2A Streaming
+DESCRIPTION: Event signaling a change in a task's status during streaming updates.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_7
+
+LANGUAGE: Event Definition
+CODE:
+```
+Event: TaskStatusUpdateEvent
+Properties:
+- id: string (Task ID)
+- status: TaskStatus (New status object)
+- final: boolean (True if terminal update)
+- metadata: object | null (Event metadata)
+```
+
+----------------------------------------
+
+TITLE: Create .env File for OpenAI API Key
+DESCRIPTION: Creates a local .env file in the agent directory and populates it with your OpenAI API key. The AG2 agent uses this key for interacting with the LLM.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+echo "OPENAI_API_KEY=your_api_key_here" > .env
+```
+
+----------------------------------------
+
+TITLE: Send A2A Request via Curl
+DESCRIPTION: Uses the curl command-line tool to send a POST request with the specified A2A JSON payload to the AG2 agent's address. This demonstrates how to interact with the agent directly using HTTP and the A2A protocol.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_11
+
+LANGUAGE: bash
+CODE:
+```
+curl -X POST http://localhost:10003 \
+-H "Content-Type: application/json" \
+-d '{"jsonrpc": "2.0", "id": 1, "method": "tasks/sendSubscribe", "params": {"id": "mcp-task-01", "sessionId": "user-session-123", "acceptedOutputModes": ["text"], "message": {"role": "user", "parts": [{"type": "text", "text": "Summarize this video: https://www.youtube.com/watch?v=kQmXtrmQ5Zg"}]}}}'
+```
+
+----------------------------------------
+
+TITLE: Running CLI and Observing Streaming Output (Bash)
+DESCRIPTION: Demonstrates how to run the A2A CLI client against the local agent and shows the expected streaming output as the agent sends multiple status updates for a single task.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/8-agent-capabilities.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+$ uv run google-a2a-cli --agent http://localhost:10002
+=========  starting a new task ========
+
+What do you want to send to the agent? (:q or quit to exit): Streaming?
+
+"status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Streaming?: one"}]}}
+"status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Streaming?: two"}]}}
+"status":{"state":"completed","message":{"role":"agent","parts":[{"type":"text","text":"Streaming?: three"}]}}
+
+```
+
+----------------------------------------
+
+TITLE: Client Request with Push Notification (JSON)
+DESCRIPTION: Initiates a long-running task (`tasks/send`) and requests a push notification via webhook upon completion. Includes the webhook URL, a client-provided token, and authentication scheme details.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_37
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-005",
+  "method": "tasks/send",
+  "params": {
+    "id": "task-reportgen-aaa",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Generate the Q1 sales report. This usually takes a while. Notify me when it's ready."
+        }
+      ]
+    },
+    "pushNotification": {
+      "url": "https://client.example.com/webhook/a2a-notifications",
+      "token": "secure-client-token-for-task-aaa",
+      "authentication": {
+        "schemes": ["Bearer"]
+        
+        
+        
+      }
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Example A2A tasks/sendSubscribe JSON Request Body
+DESCRIPTION: Illustrative JSON payload for a POST request sent via the A2A protocol to the agent's tasks/sendSubscribe endpoint. This payload specifies the task ID, session, desired output modes, and the user message.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_10
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tasks/sendSubscribe",
+  "params": {
+    "id": "mcp-task-01",
+    "sessionId": "user-session-123",
+    "acceptedOutputModes": [
+      "text"
+    ],
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Summarize this video: https://www.youtube.com/watch?v=kQmXtrmQ5Zg"
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Client Request to Get Task Details (JSON)
+DESCRIPTION: Client request (`tasks/get`) to retrieve the full details and artifacts of a specific task using its ID, typically after receiving a completion notification.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_40
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-006",
+  "method": "tasks/get",
+  "params": { "id": "task-reportgen-aaa" }
+}
+```
+
+----------------------------------------
+
+TITLE: Create Agent Card (Python)
+DESCRIPTION: This Python snippet continues the `main` function, creating an `AgentCapabilities` object and then an `AgentCard` object. The `AgentCard` includes details like name, description, URL (constructed from host and port), version, default input/output modes, capabilities, and the previously defined `skill`.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/5-add-agent-card.md#_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+# ...
+def main(host, port):
+  # ...
+  capabilities = AgentCapabilities()
+  agent_card = AgentCard(
+    name="Echo Agent",
+    description="This agent echos the input given",
+    url=f"http://{host}:{port}/",
+    version="0.1.0",
+    defaultInputModes=["text"],
+    defaultOutputModes=["text"],
+    capabilities=capabilities,
+    skills=[skill]
+  )
+  logging.info(agent_card)
+
+if __name__ == "__main__":
+  main()
+```
+
+----------------------------------------
+
+TITLE: Client Initial Flight Booking Request - JSON
+DESCRIPTION: This JSON object represents the client's first request to initiate a flight booking task using the 'tasks/send' method. It includes a unique task ID ('task-flightbook-789') and the user's initial message expressing the desire to book a flight.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_33
+
+LANGUAGE: JSON
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-003",
+  "method": "tasks/send",
+  "params": {
+    "id": "task-flightbook-789",
+    "message": {
+      "role": "user",
+      "parts": [{ "type": "text", "text": "I'd like to book a flight." }]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining Task Artifact Update Event Interface (TypeScript)
+DESCRIPTION: This interface defines the structure of an event object that carries a new or updated artifact (or a chunk of an artifact) generated by a task during streaming. It is one of the possible result types in a SendTaskStreamingResponse. It includes the task ID, the artifact data (which may be incremental), and optional metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_22
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskArtifactUpdateEvent {
+  // The ID of the task that generated this artifact. This MUST match the `TaskSendParams.id`
+  // from the `tasks/sendSubscribe` request that initiated this stream.
+  id: string;
+  // The artifact data. This could be a complete artifact or an incremental chunk.
+  // The client uses `artifact.index`, `artifact.append`, and `artifact.lastChunk`
+  // to correctly assemble or update the artifact on its side.
+  artifact: Artifact;
+  // Arbitrary metadata for this specific artifact update event.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Declaring Agent Streaming Capability (Python)
+DESCRIPTION: Updates the AgentCapabilities object during agent initialization to enable streaming functionality for the agent. This signals to clients that the agent supports streaming responses.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/8-agent-capabilities.md#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+# ...
+def main(host, port):
+  # ...
+  capabilities = AgentCapabilities(
+    streaming=True
+  )
+  # ...
+```
+
+----------------------------------------
+
+TITLE: Define DataPart Interface in TypeScript
+DESCRIPTION: Defines the structure for a message part containing structured JSON data. It includes a type discriminator ('data'), a required 'data' field holding the JSON payload (object or array), and an optional 'metadata' field for information like schema references.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_12
+
+LANGUAGE: typescript
+CODE:
+```
+interface DataPart {
+  type: 'data'; // Discriminator
+  // The structured JSON data payload. This can be any valid JSON object or array.
+  // The schema of this data is application-defined and may be implicitly understood
+  // by the interacting agents or explicitly described (e.g., via a JSON Schema reference
+  // in the `metadata` or associated `AgentSkill`).
+  data: Record<string, any> | any[];
+  metadata?: Record<string, any> | null; // Optional metadata (e.g., schema URL, version)
+}
+```
+
+----------------------------------------
+
+TITLE: Defining AgentCapabilities Object in TypeScript
+DESCRIPTION: Specifies optional features of the A2A protocol supported by the agent, such as real-time updates via SSE streaming or asynchronous updates via webhooks (push notifications).
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_2
+
+LANGUAGE: typescript
+CODE:
+```
+interface AgentCapabilities {
+  // If `true`, the agent supports `tasks/sendSubscribe` and `tasks/resubscribe` for real-time
+  // updates via Server-Sent Events (SSE). Default: `false`.
+  streaming?: boolean;
+  // If `true`, the agent supports `tasks/pushNotification/set` and `tasks/pushNotification/get`
+  // for asynchronous task updates via webhooks. Default: `false`.
+  pushNotifications?: boolean;
+  // If `true`, the agent may include a detailed history of status changes
+  // within the `Task` object (future enhancement; specific mechanism TBD). Default: `false`.
+  stateTransitionHistory?: boolean;
+}
+```
+
+----------------------------------------
+
+TITLE: Define FilePart Interface in TypeScript
+DESCRIPTION: Defines the structure for a message part containing file-based content. It includes a type discriminator ('file'), a required 'file' field referencing a FileContent object, and an optional 'metadata' field for additional information.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_11
+
+LANGUAGE: typescript
+CODE:
+```
+interface FilePart {
+  type: 'file'; // Discriminator
+  file: FileContent; // Contains the file details and data (or reference).
+  metadata?: Record<string, any> | null; // Optional metadata (e.g., purpose of the file)
+}
+```
+
+----------------------------------------
+
+TITLE: Receiving Streaming Task Status (Working) - SSE
+DESCRIPTION: An SSE event received after calling tasks/sendSubscribe, indicating the task has started processing. The 'data' field contains a JSON-RPC payload with the task ID, status showing state: "working", an initial agent message, and "final": false.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_28
+
+LANGUAGE: sse
+CODE:
+```
+id: sse-evt-101
+event: message
+data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-story-456","status":{"state":"working","message":{"role":"agent","parts":[{"type":"text","text":"Okay, I'm starting to write that story for you..."}]},"timestamp":"2024-03-15T10:05:01Z"},"final":false}}
+```
+
+----------------------------------------
+
+TITLE: Receiving Streaming Artifact Chunk (First) - SSE
+DESCRIPTION: An SSE event delivering the initial part of a task artifact. The 'data' field contains a JSON-RPC payload with the task ID and an artifact object including its name, index, and parts containing the first chunk of text.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_29
+
+LANGUAGE: sse
+CODE:
+```
+id: sse-evt-102
+event: message
+data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-story-456","artifact":{"name":"MarsStory.txt","index":0,"parts":[{"type":"text","text":"Unit 734, a small rover with oversized optical sensors, trundled across the ochre plains. "}]}}}
+```
+
+----------------------------------------
+
+TITLE: Receiving Streaming Task Status (Completed) - SSE
+DESCRIPTION: The final SSE event for a streaming task. The 'data' field contains a JSON-RPC payload with the task ID, status showing state: "completed", a final agent message, and "final": true, indicating the task is complete and the SSE connection will close.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_32
+
+LANGUAGE: sse
+CODE:
+```
+id: sse-evt-105
+event: message
+data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-story-456","status":{"state":"completed","message":{"role":"agent","parts":[{"type":"text","text":"The story is complete!"}]},"timestamp":"2024-03-15T10:05:05Z"},"final":true}}
+```
+
+----------------------------------------
+
+TITLE: Run AG2 Agent with uv (Custom Port)
+DESCRIPTION: Starts the AG2 agent using the uv run command, specifying a custom host and port for the agent to listen on, such as 0.0.0.0:8080.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+uv run . --host 0.0.0.0 --port 8080
+```
+
+----------------------------------------
+
+TITLE: Define FileContent Interface in TypeScript
+DESCRIPTION: Defines the structure for representing file details and content within a FilePart. It includes optional fields for filename, MIME type, base64 encoded bytes, and a URI. A constraint requires either 'bytes' or 'uri' to be non-null if file content is being transmitted.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_13
+
+LANGUAGE: typescript
+CODE:
+```
+interface FileContent {
+  // The original filename, if known (e.g., "document.pdf", "avatar.png").
+  name?: string | null;
+  // The [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types)
+  // of the file (e.g., "application/pdf", "image/png"). Strongly recommended for proper handling.
+  mimeType?: string | null;
+  // Base64 encoded string of the raw file content.
+  // Use this for embedding small to medium-sized files directly.
+  bytes?: string | null; // Base64 string
+  // A URI (absolute URL is STRONGLY recommended) pointing to the file content.
+  // Accessibility of this URI depends on the context (e.g., public URL, pre-signed URL, internal URL).
+  // The client and server must have a way to resolve and access this URI if used.
+  uri?: string | null;
+
+  // Constraint: If file content is being transmitted, exactly one of `bytes` or `uri` MUST be non-null.
+  // Both MAY be `null` or absent if the `FilePart` is merely representing a file reference
+  // without transmitting its content in the current message (e.g., referring to a previously uploaded file).
+}
+```
+
+----------------------------------------
+
+TITLE: Defining AgentSkill Interface in TypeScript
+DESCRIPTION: Defines the structure of an `AgentSkill` object, representing a specific capability of an agent. It includes fields for identification, description, categorization, examples, and overrides for default input/output modes.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_4
+
+LANGUAGE: typescript
+CODE:
+```
+interface AgentSkill {
+  // A unique identifier for this skill within the context of this agent
+  // (e.g., "currency-converter", "generate-image-from-prompt", "summarize-text-v2").
+  // Clients MAY use this ID to request a specific skill if the agent supports such dispatch.
+  id: string;
+  // Human-readable name of the skill (e.g., "Currency Conversion Service", "Image Generation AI").
+  name: string;
+  // Detailed description of what the skill does, its purpose, and any important considerations.
+  // [CommonMark](https://commonmark.org/) MAY be used for rich text formatting.
+  description?: string | null;
+  // Array of keywords or categories for discoverability and categorization
+  // (e.g., ["finance", "conversion"], ["media", "generative ai", "image"]).
+  tags?: string[] | null;
+  // Array of example prompts, inputs, or use cases illustrating how to use this skill
+  // (e.g., ["convert 100 USD to EUR", "generate a photorealistic image of a cat wearing a wizard hat"]).
+  // These help clients (and potentially end-users or other agents) understand how to formulate requests for this skill.
+  examples?: string[] | null;
+  // Overrides `agentCard.defaultInputModes` specifically for this skill.
+  // If `null` or omitted, the agent's `defaultInputModes` apply.
+  inputModes?: string[] | null; // Array of MIME types
+  // Overrides `agentCard.defaultOutputModes` specifically for this skill.
+  // If `null` or omitted, the agent's `defaultOutputModes` apply.
+  outputModes?: string[] | null; // Array of MIME types
+}
+```
+
+----------------------------------------
+
+TITLE: Send Message via A2A CLI (Bash)
+DESCRIPTION: Demonstrates sending a simple text message ('Hello!') to the A2A agent through the command-line interface.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/7-interact-with-server.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+=========  starting a new task ========
+
+What do you want to send to the agent? (:q or quit to exit): Hello!
+```
+
+----------------------------------------
+
+TITLE: Client Request with File Upload (JSON)
+DESCRIPTION: Initiates a task (`tasks/send`) that includes uploading file bytes (Base64 encoded) as part of the message content using a `FilePart`.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_41
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-007",
+  "method": "tasks/send",
+  "params": {
+    "id": "task-imageanalysis-bbb",
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Analyze this image and highlight any faces."
+        },
+        {
+          "type": "file",
+          "file": {
+            "name": "input_image.png",
+            "mimeType": "image/png",
+            "bytes": "iVBORw0KGgoAAAANSUhEUgAAAAUA..." 
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Multi-turn Follow-up A2A Task Response (JSON)
+DESCRIPTION: Presents the synchronous JSON-RPC response for a follow-up message sent in a multi-turn conversation. Similar to the initial synchronous response, it confirms the task's completion and provides the resulting artifact containing text output and citation metadata, influenced by the full conversation history within the session.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_8
+
+LANGUAGE: JSON
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "id": "130",
+    "status": {
+      "state": "completed",
+      "timestamp": "2025-04-02T16:53:29.301828"
+    },
+    "artifacts": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "Thing X is ... [1]"
+          }
+        ],
+        "metadata": {
+            "1": ["Text for citation 1"]
+        }
+        "index": 0,
+      }
+    ],
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Defining Agent Authentication Requirements in TypeScript
+DESCRIPTION: This TypeScript interface defines the structure for specifying authentication details for an agent's endpoint. It includes an array for listing supported authentication schemes and an optional field for non-secret, scheme-specific configuration like OAuth URLs or API key header names. It explicitly warns against including plaintext secrets.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_3
+
+LANGUAGE: typescript
+CODE:
+```
+interface AgentAuthentication {\n  // Array of authentication scheme names supported/required by the agent's endpoint\n  // (e.g., \"Bearer\", \"Basic\", \"OAuth2\", \"ApiKey\").\n  // Standard names (e.g., from OpenAPI specification, IANA registry) SHOULD be used where applicable.\n  // An empty array means no specific A2A-level schemes are advertised.\n  schemes: string[];\n  // Optional field, MAY contain non-secret, scheme-specific information.\n  // Examples: For \"OAuth2\", this could be a JSON string with `tokenUrl`, `authorizationUrl`, `scopes`.\n  // For \"ApiKey\", it could specify the header name (`in: \"header\"`, `name: \"X-Custom-API-Key\"`).\n  // **CRITICAL**: This field MUST NOT contain plaintext secrets (e.g., actual API key values, passwords).\n  // If the Agent Card itself needs to be protected due to this field containing sensitive URLs\n  // or configuration, the endpoint serving the Agent Card MUST be secured.\n  credentials?: string | null; // E.g., A JSON string parsable by the client for scheme details.\n}
+```
+
+----------------------------------------
+
+TITLE: Agent Skill Interface Definition (TypeScript)
+DESCRIPTION: TypeScript interface defining the required and optional properties for an agent skill object, including type annotations and comments explaining the purpose of each field.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/4-agent-skills.md#_snippet_1
+
+LANGUAGE: ts
+CODE:
+```
+{
+  id: string; // unique identifier for the agent's skill
+  name: string; //human readable name of the skill
+  // description of the skill - will be used by the client or a human
+  // as a hint to understand what the skill does.
+  description: string;
+  // Set of tag words describing classes of capabilities for this specific
+  // skill (e.g. "cooking", "customer support", "billing")
+  tags: string[];
+  // The set of example scenarios that the skill can perform.
+  // Will be used by the client as a hint to understand how the skill can be
+  // used. (e.g. "I need a recipe for bread")
+  examples?: string[]; // example prompts for tasks
+  // The set of interaction modes that the skill supports
+  // (if different than the default)
+  inputModes?: string[]; // supported mime types for input
+  outputModes?: string[]; // supported mime types for output
+}
+```
+
+----------------------------------------
+
+TITLE: Get Task Push Notification Config - A2A RPC
+DESCRIPTION: Retrieves the current push notification configuration for a task.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_5
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/pushNotification/get
+Type: Request/Response
+Params: TaskIdParams
+Result: TaskPushNotificationConfig
+```
+
+----------------------------------------
+
+TITLE: Cancel Task - A2A RPC
+DESCRIPTION: Requests the cancellation of a running task.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_3
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/cancel
+Type: Request/Response
+Params: TaskIdParams (id)
+Result: Task (updated state, likely 'canceled') or error
+```
+
+----------------------------------------
+
+TITLE: Set Task Push Notification Config - A2A RPC
+DESCRIPTION: Configures or updates the push notification settings for a task.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_4
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/pushNotification/set
+Type: Request/Response
+Params: TaskPushNotificationConfig
+Result: TaskPushNotificationConfig (confirmed config)
+```
+
+----------------------------------------
+
+TITLE: A2A Server Webhook Notification Payload (JSON)
+DESCRIPTION: Example body of the POST request sent by the A2A server to the client's webhook URL upon task completion. Contains the task ID, final status, and a summary.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_39
+
+LANGUAGE: json
+CODE:
+```
+{
+  "eventType": "taskUpdate",
+  "taskId": "task-reportgen-aaa",
+  "status": { "state": "completed", "timestamp": "2024-03-15T18:30:00Z" },
+  "summary": "Q1 sales report generated successfully."
+  
+}
+```
+
+----------------------------------------
+
+TITLE: Example Agent Skill Definition (TypeScript)
+DESCRIPTION: An example TypeScript object literal demonstrating the structure of an agent skill with typical properties like id, name, description, tags, examples, and supported input/output modes.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/4-agent-skills.md#_snippet_0
+
+LANGUAGE: ts
+CODE:
+```
+{
+  id: "my-project-echo-skill"
+  name: "Echo Tool",
+  description: "Echos the input given",
+  tags: ["echo", "repeater"],
+  examples: ["I will see this echoed back to me"],
+  inputModes: ["text"],
+  outputModes: ["text"]
+}
+```
+
+----------------------------------------
+
+TITLE: Server Response with File Artifact (JSON)
+DESCRIPTION: Server response upon task completion, including a file artifact in the result. The artifact can contain either the file bytes directly or a URI to download the file.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_42
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-007",
+  "result": {
+    "id": "task-imageanalysis-bbb",
+    "status": { "state": "completed", "timestamp": "2024-03-15T12:05:00Z" },
+    "artifacts": [
+      {
+        "name": "processed_image_with_faces.png",
+        "index": 0,
+        "parts": [
+          {
+            "type": "file",
+            "file": {
+              "name": "output.png",
+              "mimeType": "image/png",
+              
+              "uri": "https://storage.example.com/processed/task-bbb/output.png?token=xyz"
+              
+              
+              
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Starting the Coder Agent with Gemini API Key
+DESCRIPTION: Commands to set up the Gemini API key and start the Coder Agent service. The agent will run on http://localhost:41241/ after successful execution.
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/src/agents/coder/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+export GEMINI_API_KEY=<your_api_key>
+npm run agents:coder
+```
+
+----------------------------------------
+
+TITLE: Run Sample Google ADK Agent (Bash)
+DESCRIPTION: Executes the sample Google ADK agent code in the current directory using the uv run command. This starts a remote agent that can be added to the demo web app.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_7
+
+LANGUAGE: Bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: A2A CLI Response (Bash)
+DESCRIPTION: Displays the expected JSON response received from the A2A agent after sending a message via the command-line interface, showing the agent's role and the received text.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/7-interact-with-server.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+"message":{"role":"agent","parts":[{"type":"text","text":"on_send_task received: Hello!"}]}
+```
+
+----------------------------------------
+
+TITLE: Defining AuthenticationInfo Interface (TypeScript)
+DESCRIPTION: A generic structure used within `PushNotificationConfig` to specify authentication requirements for the A2A Server when calling a client's webhook. It includes an array of required authentication schemes and an optional field for static credentials or scheme-specific information, with a strong caution regarding the handling of secrets.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_16
+
+LANGUAGE: typescript
+CODE:
+```
+interface AuthenticationInfo {
+  // Array of authentication scheme names the caller (i.e., the A2A Server, in the context of push notifications)
+  // must use when sending the request to the webhook URL (e.g., "Bearer" for an OAuth token, "ApiKey" for a pre-shared key, "Basic").
+  // Standard names SHOULD be used.
+  schemes: string[];
+  // Optional field for providing static credentials or scheme-specific information
+  // that the A2A Server needs to use.
+  // Examples:
+  // - For "ApiKey": A JSON string like `{"in": "header", "name": "X-Client-Webhook-Key", "value": "actual_api_key_value"}`.
+  // - For "Bearer": If the A2A Server is expected to use a specific pre-issued token, it could be provided here. More commonly, the server would obtain its own token using OAuth client credentials flow if this field specifies an OAuth scheme.
+  // **CRITICAL**: Use with extreme caution if this field contains secrets. This configuration is sent from client to server.
+  // Prefer mechanisms where the server fetches its own credentials dynamically (e.g., OAuth client credentials flow with a pre-configured client ID/secret on the server side for the webhook's audience)
+  // rather than having the client provide secrets to the server.
+  // If this field *must* carry a secret, the A2A communication channel itself must be exceptionally secure, and both client and server must handle this data with care.
+  credentials?: string | null; // E.g., A JSON string parsable by the server.
+}
+```
+
+----------------------------------------
+
+TITLE: Run Semantic Kernel Agent (Default Port) (Bash)
+DESCRIPTION: Starts the Semantic Kernel agent server using `uv run`. It runs the application defined in the current directory (`.`) on the default port (10020).
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_5
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Run Semantic Kernel Agent (Custom Host/Port) (Bash)
+DESCRIPTION: Starts the Semantic Kernel agent server using `uv run`, specifying a custom host (0.0.0.0) and port (8080) for the server to listen on.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_6
+
+LANGUAGE: bash
+CODE:
+```
+uv run . --host 0.0.0.0 --port 8080
+```
+
+----------------------------------------
+
+TITLE: Running A2A Server with Uvicorn - Bash
+DESCRIPTION: Provides the command-line instruction to start the A2A server using the `uv` runner (likely associated with uvicorn). This command assumes the project is configured correctly to be run via `uv run`.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/6-start-server.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv run my-project
+```
+
+----------------------------------------
+
+TITLE: Client Providing Flight Details - JSON
+DESCRIPTION: This JSON object is the client's subsequent request using the *same* task ID ('task-flightbook-789') to provide the information requested by the server. It includes the user's message containing specific flight details like origin (JFK), destination (LHR), and desired dates.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_35
+
+LANGUAGE: JSON
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-004",
+  "method": "tasks/send",
+  "params": {
+    "id": "task-flightbook-789" /* Same task ID */,
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "I want to fly from New York (JFK) to London (LHR) around October 10th, returning October 17th."
+        }
+      ]
+    }
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Configuring Ollama Options in A2A Server Init (Python)
+DESCRIPTION: Shows how to add command-line options (`--ollama-host`, `--ollama-model`) to the A2A server's main function using `click` and pass these values to the `MyAgentTaskManager` for configuration.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_3
+
+LANGUAGE: python
+CODE:
+```
+# ...
+
+@click.command()
+@click.option("--host", default="localhost")
+@click.option("--port", default=10002)
+@click.option("--ollama-host", default="http://127.0.0.1:11434")
+@click.option("--ollama-model", default=None)
+def main(host, port, ollama_host, ollama_model):
+  # ...
+  capabilities = AgentCapabilities(
+    streaming=False # We'll leave streaming capabilities as an exercise for the reader
+  )
+  # ...
+  task_manager = MyAgentTaskManager(
+    ollama_host=ollama_host,
+    ollama_model=ollama_model,
+  )
+  # ..
+```
+
+----------------------------------------
+
+TITLE: Streaming - A2A Concept
+DESCRIPTION: Mechanism for long-running tasks to provide real-time updates using SSE via specific update events.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_22
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Streaming
+Description: Long-running tasks provide real-time updates via SSE using TaskStatusUpdateEvent and TaskArtifactUpdateEvent.
+```
+
+----------------------------------------
+
+TITLE: TypeScript Interface for tasks/cancel and tasks/pushNotification/get Request Parameters
+DESCRIPTION: Defines a simple structure for the `params` object used in JSON-RPC methods like `tasks/cancel` and `tasks/pushNotification/get`. It contains the required task ID and optional request-specific metadata.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_24
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskIdParams {
+  // The ID of the task to which the operation applies (e.g., cancel, get push notification config).
+  id: string;
+  // Arbitrary metadata for this specific request.
+  metadata?: Record<string, any> | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Install A2A SDK using pip (Bash)
+DESCRIPTION: Installs the A2A SDK package from the current directory using pip. This is typically used during development or for installing a local build.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/README.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+pip install .
+```
+
+----------------------------------------
+
+TITLE: Define PushNotificationConfig Interface in TypeScript
+DESCRIPTION: Defines the structure for configuring push notifications from the A2A Server to a client webhook. It includes the required HTTPS `url` for the webhook, an optional `token` for the client to validate notifications, and optional `authentication` details for the server to use when calling the webhook.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_15
+
+LANGUAGE: TypeScript
+CODE:
+```
+interface PushNotificationConfig {
+  // The absolute HTTPS webhook URL where the A2A Server should POST task updates.
+  // This URL MUST be HTTPS for security.
+  url: string;
+  // An optional, client-generated opaque token (e.g., a secret, a task-specific identifier, or a nonce).
+  // The A2A Server SHOULD include this token in the notification request it sends to the `url`
+  // (e.g., in a custom HTTP header like `X-A2A-Notification-Token` or similar).
+  // This allows the client's webhook receiver to validate the relevance and authenticity of the notification.
+  token?: string | null;
+  // Authentication details the A2A Server needs to use when calling the client's `url`.
+  // The client's webhook endpoint defines these requirements. This tells the A2A Server how to authenticate *itself* to the client's webhook.
+  authentication?: AuthenticationInfo | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Running A2A CLI Client - Bash
+DESCRIPTION: Navigates to the directory containing the A2A command-line interface client sample and then runs the client using `uv`, connecting it to the agent assumed to be running on `http://localhost:10010`. This allows command-line interaction with the agent.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/hosts/cli
+uv run . --agent http://localhost:10010
+```
+
+----------------------------------------
+
+TITLE: Pulling Ollama Model (Bash)
+DESCRIPTION: Command to download a specific Ollama model (`qwq`) from the Ollama registry. The chosen model supports `tools`, which is relevant for future tutorials.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+ollama pull qwq
+```
+
+----------------------------------------
+
+TITLE: Implementing Simple A2A Task Manager - Python
+DESCRIPTION: Provides a basic implementation of the `InMemoryTaskManager` interface. The `on_send_task` method processes a request, updates the task state to `COMPLETED`, and returns an echo response. The `on_send_task_subscribe` method is left unimplemented in this example. Includes a helper method `_update_task` for modifying task status and response.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/6-start-server.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+from typing import AsyncIterable
+
+import google_a2a
+from google_a2a.common.server.task_manager import InMemoryTaskManager
+from google_a2a.common.types import (
+  Artifact,
+  JSONRPCResponse,
+  Message,
+  SendTaskRequest,
+  SendTaskResponse,
+  SendTaskStreamingRequest,
+  SendTaskStreamingResponse,
+  Task,
+  TaskState,
+  TaskStatus,
+  TaskStatusUpdateEvent,
+)
+
+class MyAgentTaskManager(InMemoryTaskManager):
+  def __init__(self):
+    super().__init__()
+
+  async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
+    # Upsert a task stored by InMemoryTaskManager
+    await self.upsert_task(request.params)
+
+    task_id = request.params.id
+    # Our custom logic that simply marks the task as complete
+    # and returns the echo text
+    received_text = request.params.message.parts[0].text
+    task = await self._update_task(
+      task_id=task_id,
+      task_state=TaskState.COMPLETED,
+      response_text=f"on_send_task received: {received_text}"
+    )
+
+    # Send the response
+    return SendTaskResponse(id=request.id, result=task)
+
+  async def on_send_task_subscribe(
+    self,
+    request: SendTaskStreamingRequest
+  ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
+    pass
+
+  async def _update_task(
+    self,
+    task_id: str,
+    task_state: TaskState,
+    response_text: str,
+  ) -> Task:
+    task = self.tasks[task_id]
+    agent_response_parts = [
+      {
+        "type": "text",
+        "text": response_text,
+      }
+    ]
+    task.status = TaskStatus(
+      state=task_state,
+      message=Message(
+        role="agent",
+        parts=agent_response_parts,
+      )
+    )
+    task.artifacts = [
+      Artifact(
+        parts=agent_response_parts,
+      )
+    ]
+    return task
+```
+
+----------------------------------------
+
+TITLE: Run A2A CLI Client (Custom Agent URL) (Bash)
+DESCRIPTION: Provides an example command to run the A2A CLI client, demonstrating how to specify a custom agent URL if the agent was started on a different host or port.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_9
+
+LANGUAGE: bash
+CODE:
+```
+# If you changed the port when starting the agent, use that port instead
+uv run . --agent http://localhost:YOUR_PORT
+```
+
+----------------------------------------
+
+TITLE: Run Demo Web App Frontend (Bash)
+DESCRIPTION: Executes the main Python script (main.py) for the demo web application frontend using the uv run command. This starts the web server, typically on port 12000.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_4
+
+LANGUAGE: Bash
+CODE:
+```
+uv run main.py
+```
+
+----------------------------------------
+
+TITLE: Running the ADK Agent Server with UV in Bash
+DESCRIPTION: Command to start the ADK agent server using UV, which makes the agent available at a local port (default 10002).
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/google_adk/README.md#2025-04-21_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Task Artifact Update Event - A2A Streaming
+DESCRIPTION: Event signaling a new or updated artifact associated with a task during streaming updates.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_8
+
+LANGUAGE: Event Definition
+CODE:
+```
+Event: TaskArtifactUpdateEvent
+Properties:
+- id: string (Task ID)
+- artifact: Artifact (Artifact data)
+- final: boolean (Usually false, can signal end concurrently)
+- metadata: object | null (Event metadata)
+```
+
+----------------------------------------
+
+TITLE: Running A2A Server with Ollama (Bash)
+DESCRIPTION: Command to start the A2A server using `uv run`, passing the Ollama host and model name as command-line arguments to configure the server's AI capabilities.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_6
+
+LANGUAGE: bash
+CODE:
+```
+uv run my-project --ollama-host http://127.0.0.1:11434 --ollama-model qwq
+```
+
+----------------------------------------
+
+TITLE: Defining AgentProvider Object in TypeScript
+DESCRIPTION: Defines the structure for providing information about the organization or entity that offers the agent. It includes the required organization name and an optional URL.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_1
+
+LANGUAGE: typescript
+CODE:
+```
+interface AgentProvider {
+  // Name of the organization or entity.
+  organization: string;
+  // URL for the provider's organization website or relevant contact page.
+  url?: string | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Run CrewAI Agent with Custom Host/Port (Bash)
+DESCRIPTION: Runs the CrewAI agent application using uv, specifying a custom host (0.0.0.0 for external access) and port (8080) instead of the defaults.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_6
+
+LANGUAGE: bash
+CODE:
+```
+uv run . --host 0.0.0.0 --port 8080
+```
+
+----------------------------------------
+
+TITLE: Running JavaScript Agents with Gemini API
+DESCRIPTION: Commands to set up the Gemini API key and run the coder agent, followed by starting the CLI interface in a separate terminal
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/README.md#2025-04-21_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+export GEMINI_API_KEY=<your_api_key>
+npm run agents:coder
+
+# in a separate terminal
+npm run a2a:cli
+```
+
+----------------------------------------
+
+TITLE: Run AG2 Agent with uv (Default Port)
+DESCRIPTION: Starts the AG2 agent using the uv run command. The agent will listen for incoming A2A requests on the default port 10003.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Setting up and running the Marvin agent server in Bash
+DESCRIPTION: Commands for navigating to the project directory, setting up the Python environment, and running the Marvin agent server. It includes options for setting the OpenAI API key and specifying custom host/port.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/marvin/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/marvin
+
+export OPENAI_API_KEY=your_api_key_here
+
+uv venv
+source .venv/bin/activate
+uv sync
+
+# Default host/port (localhost:10030)
+MARVIN_DATABASE_URL=sqlite+aiosqlite:///test.db MARVIN_LOG_LEVEL=DEBUG uv run .
+
+# Custom host/port
+# uv run . --host 0.0.0.0 --port 8080
+```
+
+----------------------------------------
+
+TITLE: Configure Google AI Studio API Key (Bash)
+DESCRIPTION: Creates or appends to a .env file in the current directory, setting the GOOGLE_API_KEY environment variable. This provides authentication credentials for the application.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_1
+
+LANGUAGE: Bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" >> .env
+```
+
+----------------------------------------
+
+TITLE: Running LlamaIndex Agent - Bash
+DESCRIPTION: Uses the `uv` tool to run the LlamaIndex A2A agent. It shows the basic command for running on the default port (10010) and an alternative for specifying a custom host and port (8080). Requires `uv` to be installed and project dependencies present.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+
+# On custom host/port
+uv run . --host 0.0.0.0 --port 8080
+```
+
+----------------------------------------
+
+TITLE: Running the MindsDB Agent (Bash)
+DESCRIPTION: Executes the MindsDB agent application using `uv`, a fast Python package installer and runner. This command starts the agent server, typically listening on a specific port (default 10006).
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/mindsdb/README.md#_snippet_2
+
+LANGUAGE: Bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Run CrewAI Agent with UV (Default) (Bash)
+DESCRIPTION: Runs the CrewAI agent application using the uv package manager's run command. This starts the agent with default host and port settings.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_5
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Running the A2A CLI Client with UV
+DESCRIPTION: Command to run the A2A CLI client using UV, specifying the URL of the A2A server with the --agent flag. Additional command line options are available in the source code.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/hosts/cli/README.md#2025-04-21_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+uv run . --agent [url-of-your-a2a-server]
+```
+
+----------------------------------------
+
+TITLE: Install MCP YouTube Server Tool with uv
+DESCRIPTION: Installs the prerequisite MCP YouTube server tool using the uv package manager. This tool is required for the AG2 agent to be able to process YouTube video summaries.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+uv tool install git+https://github.com/sparfenyuk/mcp-youtube
+```
+
+----------------------------------------
+
+TITLE: Running the A2A CLI Host (Bash)
+DESCRIPTION: Executes the A2A CLI host application using `uv`, specifying the URL of the running MindsDB agent. This command connects the CLI client to the agent, allowing the user to send natural language queries.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/mindsdb/README.md#_snippet_4
+
+LANGUAGE: Bash
+CODE:
+```
+uv run . --agent http://localhost:10006
+```
+
+----------------------------------------
+
+TITLE: Run A2A CLI Client with uv
+DESCRIPTION: Starts the A2A Command Line Interface client using uv and specifies the URL of the running AG2 agent it should connect to for sending tasks.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_6
+
+LANGUAGE: bash
+CODE:
+```
+uv run hosts/cli --agent http://localhost:10003
+```
+
+----------------------------------------
+
+TITLE: Start Server (Bash)
+DESCRIPTION: Starts the main application server using the 'uv run' command, executing the 'main.py' script.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/examples/langgraph/README.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+uv run main.py
+```
+
+----------------------------------------
+
+TITLE: Configuring MindsDB Agent Environment Variables
+DESCRIPTION: Explains how to set up the required environment variables for the MindsDB agent by creating a .env file. These variables, including the API key and the Mind name, are necessary for the agent to connect to MindsDB and use the specified AI model.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/mindsdb/README.md#_snippet_0
+
+LANGUAGE: Configuration
+CODE:
+```
+MINDS_API_KEY=your_mindsdb_api_key
+MIND_NAME=your_mindsdb_model_name
+```
+
+----------------------------------------
+
+TITLE: Configure Google Cloud Vertex AI Authentication (Bash)
+DESCRIPTION: Creates or appends to a .env file, setting environment variables to configure the application to use Google Cloud Vertex AI for generative models. Requires prior authentication via gcloud auth login.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_2
+
+LANGUAGE: Bash
+CODE:
+```
+echo "GOOGLE_GENAI_USE_VERTEXAI=TRUE" >> .env
+echo "GOOGLE_CLOUD_PROJECT=your_project_id" >> .env
+echo "GOOGLE_CLOUD_LOCATION=your_location" >> .env
+```
+
+----------------------------------------
+
+TITLE: Setting Up the Agent Environment using Bash Commands
+DESCRIPTION: Bash commands for navigating to the sample directory, creating an environment file with an API key, and running the agent with optional host/port configuration.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/langgraph/README.md#2025-04-21_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/langgraph
+```
+
+LANGUAGE: bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" > .env
+```
+
+LANGUAGE: bash
+CODE:
+```
+# Basic run on default port 10000
+uv run .
+
+# On custom host/port
+uv run . --host 0.0.0.0 --port 8080
+```
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/hosts/cli
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Create .env File with Google API Key (Bash)
+DESCRIPTION: Creates or overwrites a .env file in the current directory and writes the Google API key (or Vertex AI credentials) into it. This file is used by the application to load the necessary credentials.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" > .env
+```
+
+----------------------------------------
+
+TITLE: Running A2A Agent
+DESCRIPTION: Command to start the A2A agent using UV package manager
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/README.md#2025-04-21_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Resubscribe to Task Updates - A2A RPC
+DESCRIPTION: Resubscribes to task updates via SSE after a connection interruption.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_6
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/resubscribe
+Type: Request/Stream
+Params: TaskQueryParams
+Result (stream events): TaskStatusUpdateEvent or TaskArtifactUpdateEvent
+```
+
+----------------------------------------
+
+TITLE: Run A2A CLI Client (Bash)
+DESCRIPTION: Starts the A2A command-line interface client using `uv run`. It connects the client to the agent server running at the specified URL (http://localhost:10020).
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_8
+
+LANGUAGE: bash
+CODE:
+```
+uv run . --agent http://localhost:10020
+```
+
+----------------------------------------
+
+TITLE: Creating Environment File with API Key in Bash
+DESCRIPTION: Command to create a .env file containing the Google API key required for the agent to access LLM services.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/google_adk/README.md#2025-04-21_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" > .env
+```
+
+----------------------------------------
+
+TITLE: Defining JSONRPCError Object in TypeScript
+DESCRIPTION: This TypeScript interface defines the structure of the `error` object used in a JSON-RPC Response when a call fails. It includes fields for an integer error code, a string message, and optional additional data.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_18
+
+LANGUAGE: TypeScript
+CODE:
+```
+interface JSONRPCError {
+  // A Number that indicates the error type that occurred.
+  // This MUST be an integer.
+  code: number;
+  // A String providing a short description of the error.
+  // The message SHOULD be limited to a concise single sentence.
+  message: string;
+  // A Primitive or Structured value that contains additional information about the error.
+  // This may be omitted. The value of this member is defined by the Server (e.g. detailed error codes,
+  // debugging information).
+  data?: any;
+}
+```
+
+----------------------------------------
+
+TITLE: Run Helloworld Client (Bash)
+DESCRIPTION: Executes the test client script for the helloworld example, typically in a separate terminal after the remote agent has been started.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/README.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+python test_client.py
+```
+
+----------------------------------------
+
+TITLE: Activate Virtual Environment (Bash)
+DESCRIPTION: Activate the virtual environment in the current terminal session by sourcing the activation script. This command must be run in each new terminal window used for the project.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+source .venv/bin/activate
+```
+
+----------------------------------------
+
+TITLE: Running the A2A client CLI in Bash
+DESCRIPTION: Commands for running an A2A client, specifically the sample CLI, to interact with the Marvin agent server. It assumes the Python environment is already active.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/marvin/README.md#2025-04-21_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+# Ensure the environment is active (source .venv/bin/activate)
+cd samples/python/hosts/cli
+uv run . --agent http://localhost:10030 # Use the correct agent URL/port
+```
+
+----------------------------------------
+
+TITLE: Run A2A CLI Client (Default Agent URL) (Bash)
+DESCRIPTION: Runs the A2A CLI client application using uv, connecting it to the agent running at the default URL http://localhost:10001.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_8
+
+LANGUAGE: bash
+CODE:
+```
+uv run . --agent http://localhost:10001
+```
+
+----------------------------------------
+
+TITLE: Create Virtual Environment with UV (Bash)
+DESCRIPTION: Uses the uv package manager to create a virtual environment in the current directory. This isolates the project's dependencies from the system Python installation.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv venv
+```
+
+----------------------------------------
+
+TITLE: Running the A2A Client in Bash
+DESCRIPTION: Commands to navigate to the CLI host directory and start the A2A client, connecting it to the running agent server at the specified port.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/google_adk/README.md#2025-04-21_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+# Connect to the agent (specify the agent URL with correct port)
+cd samples/python/hosts/cli
+uv run . --agent http://localhost:10002
+
+# If you changed the port when starting the agent, use that port instead
+# uv run . --agent http://localhost:YOUR_PORT
+```
+
+----------------------------------------
+
+TITLE: Create Virtual Environment with uv (Bash)
+DESCRIPTION: Creates a new Python virtual environment using the `uv` tool. This isolates project dependencies from the system Python installation.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv venv
+```
+
+----------------------------------------
+
+TITLE: Running Client Application
+DESCRIPTION: Command to start the example client using UV package manager
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/README.md#2025-04-21_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv run .
+```
+
+----------------------------------------
+
+TITLE: Defining TaskPushNotificationConfig Interface (TypeScript)
+DESCRIPTION: Used as the parameter object for setting (`tasks/pushNotification/set`) and the result object for getting (`tasks/pushNotification/get`) task-specific push notification settings. It contains the task ID and the `PushNotificationConfig` object.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_17
+
+LANGUAGE: typescript
+CODE:
+```
+interface TaskPushNotificationConfig {
+  // The ID of the task for which push notification settings are being configured or retrieved.
+  id: string;
+  // The push notification configuration details.
+  // When used as params for `set`, this provides the configuration to apply.
+  // When used as result for `get`, this reflects the currently active configuration (server MAY omit secrets).
+  // If `null` when setting, it might indicate clearing existing configuration (server-dependent).
+  pushNotificationConfig: PushNotificationConfig | null;
+}
+```
+
+----------------------------------------
+
+TITLE: Pin Python Version with uv (Bash)
+DESCRIPTION: Uses the `uv` tool to specify and pin the desired Python version (3.12 in this example) for the project environment. This ensures consistency.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+uv python pin 3.12
+```
+
+----------------------------------------
+
+TITLE: Run Helloworld Remote Agent (Bash)
+DESCRIPTION: Navigates to the helloworld example directory and executes the main script to start the remote agent component of the example.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/README.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+cd examples/helloworld
+python __main__.py
+```
+
+----------------------------------------
+
+TITLE: Run Demo Web UI with uv
+DESCRIPTION: Starts the demo web user interface using the uv run command. This UI typically runs on http://localhost:12000 and provides a graphical way to interact with A2A agents.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_9
+
+LANGUAGE: bash
+CODE:
+```
+uv run main.py
+```
+
+----------------------------------------
+
+TITLE: A2A Server Startup Output (Bash)
+DESCRIPTION: Shows the expected output when starting the A2A server using `uv run my-project`, indicating the server is running and listening on a specific port.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/7-interact-with-server.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+# This should already be running in your terminal
+$ uv run my-project
+INFO:     Started server process [20538]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://localhost:10002 (Press CTRL+C to quit)
+```
+
+----------------------------------------
+
+TITLE: Server Responding with Structured JSON Data (A2A)
+DESCRIPTION: Shows an A2A server's response to a client request. The server includes the requested structured data as a JSON object within a `DataPart` inside an artifact. The `metadata` within the `DataPart` explicitly states the `mimeType` as `application/json` and confirms the `schemaRef`.
+SOURCE: https://github.com/google/a2a/blob/main/docs/specification.md#_snippet_44
+
+LANGUAGE: json
+CODE:
+```
+{
+  "jsonrpc": "2.0",
+  "id": "req-008",
+  "result": {
+    "id": "task-gettickets-ccc",
+    "status": { "state": "completed", "timestamp": "2024-03-15T12:15:00Z" },
+    "artifacts": [
+      {
+        "name": "open_support_tickets.json",
+        "index": 0,
+        "parts": [
+          {
+            "type": "data",
+            "metadata": {
+              "mimeType": "application/json", // Explicitly state MIME type
+              "schemaRef": "https://schemas.example.com/supportTicketList_v1.json" // Confirming schema
+            },
+            "data": [
+              {
+                "ticketId": "IT00123",
+                "summary": "Cannot connect to VPN",
+                "status": "Open",
+                "createdDate": "2024-03-14T09:30:00Z"
+              },
+              {
+                "ticketId": "IT00125",
+                "summary": "Printer not working on 3rd floor",
+                "status": "In Progress",
+                "createdDate": "2024-03-13T15:00:00Z"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+----------------------------------------
+
+TITLE: Installing Python Dependencies (Bash)
+DESCRIPTION: Command using `uv` to install the necessary Python libraries (`langchain`, `langchain-ollama`, and `langgraph`) required for integrating Ollama with the Python A2A server.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+uv add langchain langchain-ollama langgraph
+```
+
+----------------------------------------
+
+TITLE: Authenticate with Google Cloud CLI (Bash)
+DESCRIPTION: Initiates the process to authenticate the Google Cloud SDK (gcloud CLI) with a Google account. This is a prerequisite for using Vertex AI authentication.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_3
+
+LANGUAGE: Bash
+CODE:
+```
+gcloud auth login
+```
+
+----------------------------------------
+
+TITLE: Create Virtual Environment with UV (Bash)
+DESCRIPTION: Create a dedicated virtual environment for the project using `uv venv`. This isolates project dependencies and only needs to be performed once.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+uv venv .venv
+```
+
+----------------------------------------
+
+TITLE: Setting Up and Running Movie Info Agent with TMDB and Gemini APIs
+DESCRIPTION: This snippet demonstrates how to set up the required API keys as environment variables and start the Movie Info Agent. It requires a TMDB API key and a Gemini API key. The agent will be accessible at http://localhost:41241 after starting.
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/src/agents/movie-agent/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+export TMDB_API_KEY=<api_key> # see https://developer.themoviedb.org/docs/getting-started
+export GEMINI_API_KEY=<api_key>
+npm run agents:movie-agent
+```
+
+----------------------------------------
+
+TITLE: Activate Virtual Environment (Bash)
+DESCRIPTION: Activates the newly created Python virtual environment. Subsequent commands will use the Python interpreter and packages within this environment.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+source .venv/bin/activate
+```
+
+----------------------------------------
+
+TITLE: Setting up JavaScript Agents - Directory Navigation
+DESCRIPTION: Command to navigate to the JavaScript samples directory where the agent code is located
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/js
+```
+
+----------------------------------------
+
+TITLE: Raise Platform (MCP)
+DESCRIPTION: An example of an MCP call made by a Mechanic agent to a Platform Lift tool. This call is used to command the lift to raise the vehicle platform to a specified height in meters.
+SOURCE: https://github.com/google/a2a/blob/main/docs/topics/a2a-and-mcp.md#_snippet_0
+
+LANGUAGE: Tool Call Syntax
+CODE:
+```
+raise_platform(height_meters=2)
+```
+
+----------------------------------------
+
+TITLE: Activate Virtual Environment (Bash)
+DESCRIPTION: Activates the newly created virtual environment. Subsequent commands will use the Python interpreter and packages installed within this environment.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+source .venv/bin/activate
+```
+
+----------------------------------------
+
+TITLE: Verify A2A SDK Installation (Python)
+DESCRIPTION: Verifies that the A2A SDK was successfully installed by attempting to import the 'a2a' module in a Python interpreter or script.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/README.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+import a2a
+```
+
+----------------------------------------
+
+TITLE: Add Google-A2A Python Library with UV (Bash)
+DESCRIPTION: Add the sample Google-A2A Python libraries as a project dependency using `uv add`. The library is fetched directly from a specific subdirectory within the Google A2A GitHub repository.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+uv add git+https://github.com/google/A2A#subdirectory=samples/python
+```
+
+----------------------------------------
+
+TITLE: Navigate to Demo Web UI Directory
+DESCRIPTION: Changes the current directory to the location of the demo web user interface code. This UI acts as an A2A client to interact with the agent.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_7
+
+LANGUAGE: bash
+CODE:
+```
+cd demo/ui
+```
+
+----------------------------------------
+
+TITLE: Example A2A CLI Output with Ollama Response (Bash)
+DESCRIPTION: Shows an example interaction with the A2A CLI, demonstrating the output received from the A2A server, which includes the response generated by the integrated Ollama model.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/9-ollama-agent.md#_snippet_8
+
+LANGUAGE: bash
+CODE:
+```
+=========  starting a new task ========
+
+What do you want to send to the agent? (:q or quit to exit): hey
+
+"message":{"role":"agent","parts":[{"type":"text","text":"<think>\nOkay, the user said \"hey\". That's pretty casual. I should respond in a friendly way. Maybe ask how I can help them today. Keep it open-ended so they feel comfortable sharing what they need. Let me make sure my tone is positive and approachable. Alright, something like, \"Hey there! How can I assist you today?\" Yeah, that sounds good.\n</think>\n\nHey there! How can I assist you today? 😊"}]}
+```
+
+----------------------------------------
+
+TITLE: Running the Project (Bash)
+DESCRIPTION: Bash command to execute the Python project named 'my-project' using the 'uv run' command.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/4-agent-skills.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv run my-project
+```
+
+----------------------------------------
+
+TITLE: Example A2A Server Startup Output - Bash
+DESCRIPTION: Shows the expected console output when the A2A server successfully starts using the `uv run` command. It indicates the server process ID, startup completion, and the address where the server is listening.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/6-start-server.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+INFO:     Started server process [20506]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://localhost:10002 (Press CTRL+C to quit)
+```
+
+----------------------------------------
+
+TITLE: Invalid Request Error - Standard RPC Error
+DESCRIPTION: Standard JSON-RPC error indicating an invalid JSON-RPC request object.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_10
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32600
+Name: InvalidRequestError
+Description: Invalid JSON-RPC request object.
+```
+
+----------------------------------------
+
+TITLE: Run Test Client (Bash)
+DESCRIPTION: Executes the test client script 'test_client.py' using 'uv run' to interact with the running server.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/examples/langgraph/README.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+uv run test_client.py
+```
+
+----------------------------------------
+
+TITLE: Get Task State - A2A RPC
+DESCRIPTION: Retrieves the current state of a specific task.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_2
+
+LANGUAGE: RPC Definition
+CODE:
+```
+Method: tasks/get
+Type: Request/Response
+Params: TaskQueryParams (id, historyLength?)
+Result: Task
+```
+
+----------------------------------------
+
+TITLE: Run UV Project (Bash)
+DESCRIPTION: Execute the project's main entry point using `uv run`. This command runs the package specified in the project configuration.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_6
+
+LANGUAGE: bash
+CODE:
+```
+uv run my-project
+```
+
+----------------------------------------
+
+TITLE: Display Project Run Output (Bash)
+DESCRIPTION: Show the expected output when the project is successfully run using `uv run`. This confirms that the basic project setup is functional.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_7
+
+LANGUAGE: bash
+CODE:
+```
+Hello from my-project!
+```
+
+----------------------------------------
+
+TITLE: Check Python Version with uv
+DESCRIPTION: This command executes a simple Python script using `uv run` to print the current Python version. It serves as a verification step to ensure that the required Python version (>= 3.12) is correctly installed and managed by `uv` before proceeding with the project setup.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/2-setup.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+echo 'import sys; print(sys.version)' | uv run -
+```
+
+----------------------------------------
+
+TITLE: Push Notification Not Supported Error - A2A Error
+DESCRIPTION: A2A specific error indicating the agent does not support push notifications.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_16
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32003
+Name: PushNotificationNotSupportedError
+Description: Agent does not support push notifications.
+```
+
+----------------------------------------
+
+TITLE: Example Agent Skill Output (Bash)
+DESCRIPTION: Example output displayed in the console after running the Python script, showing the string representation of the created AgentSkill object.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/4-agent-skills.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+id='my-project-echo-skill' name='Echo Tool' description='Echos the input given' tags=['echo', 'repeater'] examples=['I will see this echoed back to me'] inputModes=['text'] outputModes=['text']
+```
+
+----------------------------------------
+
+TITLE: Running Pytest Tests using uv - Bash
+DESCRIPTION: Runs the pytest test suite for `test_a2a_spec.py` with verbose output and disabled output capture using the `uv run` command. Requires `uv` and `pytest` to be installed and the specified test file to exist.
+SOURCE: https://github.com/google/a2a/blob/main/tests/README.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+uv run pytest -v -s test_a2a_spec.py
+```
+
+----------------------------------------
+
+TITLE: Activate Virtual Environment and Run A2A CLI (Bash)
+DESCRIPTION: Commands to activate the Python virtual environment and then launch the Google-A2A command-line interface, connecting it to the running A2A server.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/7-interact-with-server.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+source .venv/bin/activate
+uv run google-a2a-cli --agent http://localhost:10002
+```
+
+----------------------------------------
+
+TITLE: Authentication - A2A Concept
+DESCRIPTION: Describes how authentication is defined for agents and push notifications, supporting various schemes.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_24
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Authentication
+Description: Defined in AgentCard and PushNotificationConfig; supports schemes like API keys, OAuth, JWT (samples use JWT for push notifications).
+```
+
+----------------------------------------
+
+TITLE: Push Notifications - A2A Concept
+DESCRIPTION: Mechanism for agents to proactively notify clients about task updates using webhook URLs and defined authentication.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_23
+
+LANGUAGE: Concept Description
+CODE:
+```
+Concept: Push Notifications
+Description: Agents notify clients via webhook URLs (set via tasks/pushNotification/set) with defined authentication (e.g., JWT).
+```
+
+----------------------------------------
+
+TITLE: Create .env File for Google API Key (Web UI)
+DESCRIPTION: Creates a local .env file for the demo web UI and populates it with your Google API key. The web UI agent may use this key for its own operations.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_8
+
+LANGUAGE: bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" > .env
+```
+
+----------------------------------------
+
+TITLE: Display Project Structure (Bash)
+DESCRIPTION: Show the expected file and directory structure of the project after initialization and virtual environment creation using the `tree` command. This snippet displays the output of the command.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+tree .
+.
+├── pyproject.toml
+├── README.md
+├── src
+│   └── my-project
+│       ├── __init__.py
+```
+
+----------------------------------------
+
+TITLE: Downloading Sample File - Bash
+DESCRIPTION: Downloads a sample PDF file from a specified URL using the `wget` utility and saves it locally as `attention.pdf`. This downloaded file can then be used as input for the running LlamaIndex agent via the A2A client.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+wget https://arxiv.org/pdf/1706.03762 -O attention.pdf
+```
+
+----------------------------------------
+
+TITLE: Copy Environment File to Agent Directory (Bash)
+DESCRIPTION: Copies the .env file containing authentication credentials from the demo UI directory to the current sample agent directory. This ensures the agent has the necessary credentials.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_6
+
+LANGUAGE: Bash
+CODE:
+```
+cp ../../../../demo/ui/.env ./
+```
+
+----------------------------------------
+
+TITLE: Cleaning Project Caches - Bash
+DESCRIPTION: Cleans `uv`'s cache (`uv clean`) and removes common Python development caches (`.pytest_cache`, `.venv`, `__pycache__`) to ensure changes in common code are reflected. Requires `uv` and appropriate file system permissions.
+SOURCE: https://github.com/google/a2a/blob/main/tests/README.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+uv clean
+```
+
+LANGUAGE: bash
+CODE:
+```
+rm -fR .pytest_cache .venv __pycache__
+```
+
+----------------------------------------
+
+TITLE: Create Agent and Task Manager Files (Bash)
+DESCRIPTION: Create placeholder files for the agent and task manager modules within the project's source directory using the `touch` command. These files will be used later for implementing application logic.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_5
+
+LANGUAGE: bash
+CODE:
+```
+touch src/my_project/agent.py
+touch src/my_project/task_manager.py
+```
+
+----------------------------------------
+
+TITLE: Navigating Agent Directory - Bash
+DESCRIPTION: Changes the current directory to the location of the LlamaIndex file chat agent sample code. This is the first step before setting up and running the agent from the command line.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/llama_index_file_chat
+```
+
+----------------------------------------
+
+TITLE: Navigate to Demo UI Directory (Bash)
+DESCRIPTION: Changes the current directory to the location of the demo web application's frontend code. This is the first step in running the demo.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_0
+
+LANGUAGE: Bash
+CODE:
+```
+cd demo/ui
+```
+
+----------------------------------------
+
+TITLE: Navigate to Python Samples Directory
+DESCRIPTION: Changes the current directory to the root of the Python samples, which contains the A2A CLI client entry point.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_5
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python
+```
+
+----------------------------------------
+
+TITLE: Navigate to AG2 Agent Directory
+DESCRIPTION: Changes the current directory in the terminal to the location of the AG2 agent sample code within the project structure. This is a necessary step before running the agent.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/ag2/README.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/ag2
+```
+
+----------------------------------------
+
+TITLE: Navigating to A2A CLI Host Directory (Bash)
+DESCRIPTION: Instructs the user to change the current directory to the location of the A2A command-line interface (CLI) host sample code. This is done in a separate terminal to run the client that interacts with the agent.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/mindsdb/README.md#_snippet_3
+
+LANGUAGE: Bash
+CODE:
+```
+cd samples/python/hosts/cli
+```
+
+----------------------------------------
+
+TITLE: Navigate to Agent Directory (Bash)
+DESCRIPTION: Changes the current directory to the location of the Semantic Kernel agent sample code. This is the first step in setting up and running the agent.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/semantickernel
+```
+
+----------------------------------------
+
+TITLE: Create Environment File (Bash)
+DESCRIPTION: Creates a '.env' file in the current directory and writes the Google API key to it. Replace 'your_api_key_here' with your actual API key.
+SOURCE: https://github.com/google/a2a/blob/main/a2a-python-sdk/examples/langgraph/README.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" > .env
+```
+
+----------------------------------------
+
+TITLE: Creating Environment File - Bash
+DESCRIPTION: Creates or appends to a `.env` file in the current directory, adding placeholder values for the required Google Gen AI and LlamaParse API keys. These environment variables are necessary for the agent to authenticate with external services.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/llama_index_file_chat/README.md#_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+echo "GOOGLE_API_KEY=your_api_key_here" >> .env
+echo "LLAMA_CLOUD_API_KEY=your_api_key_here" >> .env
+```
+
+----------------------------------------
+
+TITLE: Install Documentation Dependencies (Python)
+DESCRIPTION: Installs the necessary Python packages for building the A2A documentation from the `requirements-docs.txt` file. This command uses pip.
+SOURCE: https://github.com/google/a2a/blob/main/docs/README.md#_snippet_0
+
+LANGUAGE: Shell
+CODE:
+```
+pip install -r requirements-docs.txt
+```
+
+----------------------------------------
+
+TITLE: Navigate to Sample Agent Directory (Bash)
+DESCRIPTION: Changes the current directory to the location of the sample Google ADK agent code. This is a step towards running a remote agent to interact with the demo UI.
+SOURCE: https://github.com/google/a2a/blob/main/demo/README.md#_snippet_5
+
+LANGUAGE: Bash
+CODE:
+```
+cd ../../samples/agents/google_adk/
+```
+
+----------------------------------------
+
+TITLE: Navigating to CLI Directory
+DESCRIPTION: Command to change directory to the CLI host application location
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/README.md#2025-04-21_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/hosts/cli
+```
+
+----------------------------------------
+
+TITLE: Initialize UV Project with Package Flag (Bash)
+DESCRIPTION: Use `uv init` to create a new project directory and initialize it. The `--package` flag is included to support adding tests or publishing the project later. The second command navigates into the newly created project directory.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/3-create-project.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+uv init --package my-project
+cd my-project
+```
+
+----------------------------------------
+
+TITLE: Run Project (uv)
+DESCRIPTION: This command uses the `uv` package manager to run the Python project named `my-project`. This executes the script containing the code to define and log the Agent Card.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/5-add-agent-card.md#_snippet_3
+
+LANGUAGE: bash
+CODE:
+```
+uv run my-project
+```
+
+----------------------------------------
+
+TITLE: Content Type Not Supported Error - A2A Error
+DESCRIPTION: A2A specific error indicating a mismatch in supported content types.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_18
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32005
+Name: ContentTypeNotSupportedError
+Description: Mismatch in supported content types.
+```
+
+----------------------------------------
+
+TITLE: Add Click Dependency (uv)
+DESCRIPTION: This command uses the `uv` package manager to add the `click` library as a dependency. `click` is used here to help parse command-line arguments for the agent server.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/5-add-agent-card.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+uv add click
+```
+
+----------------------------------------
+
+TITLE: Pin Python Version with UV (Bash)
+DESCRIPTION: Uses the uv package manager to ensure that Python version 3.12 is used for the project environment. This helps maintain consistency and compatibility.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_2
+
+LANGUAGE: bash
+CODE:
+```
+uv python pin 3.12
+```
+
+----------------------------------------
+
+TITLE: Installing Dependencies for JavaScript Agents
+DESCRIPTION: Command to install required npm packages for the agent samples
+SOURCE: https://github.com/google/a2a/blob/main/samples/js/README.md#2025-04-21_snippet_1
+
+LANGUAGE: bash
+CODE:
+```
+npm install
+```
+
+----------------------------------------
+
+TITLE: Invalid Params Error - Standard RPC Error
+DESCRIPTION: Standard JSON-RPC error indicating invalid method parameters.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_12
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32602
+Name: InvalidParamsError
+Description: Invalid method parameters.
+```
+
+----------------------------------------
+
+TITLE: Task Not Found Error - A2A Error
+DESCRIPTION: A2A specific error indicating the specified task ID was not found.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_14
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32001
+Name: TaskNotFoundError
+Description: Specified task ID not found.
+```
+
+----------------------------------------
+
+TITLE: Task Not Cancelable Error - A2A Error
+DESCRIPTION: A2A specific error indicating a task is in a final state and cannot be canceled.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_15
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32002
+Name: TaskNotCancelableError
+Description: Task is in a final state and cannot be canceled.
+```
+
+----------------------------------------
+
+TITLE: Navigate to CrewAI Agent Directory (Bash)
+DESCRIPTION: Changes the current directory to the location of the CrewAI agent sample code within the project structure. This is the first step in setting up and running the agent.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/crewai
+```
+
+----------------------------------------
+
+TITLE: Navigating to MindsDB Agent Directory (Bash)
+DESCRIPTION: Instructs the user to change the current directory to the location of the MindsDB agent sample code within the project structure. This is the first step before running the agent application.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/mindsdb/README.md#_snippet_1
+
+LANGUAGE: Bash
+CODE:
+```
+cd samples/python/agents/mindsdb
+```
+
+----------------------------------------
+
+TITLE: Navigating to the ADK Agent Directory in Bash
+DESCRIPTION: Command to navigate to the directory containing the ADK agent sample code.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/google_adk/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/google_adk
+```
+
+----------------------------------------
+
+TITLE: Navigating to CLI Sample Directory in Bash
+DESCRIPTION: Command to navigate to the Python CLI sample directory for the A2A client implementation.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/hosts/cli/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/hosts/cli
+```
+
+----------------------------------------
+
+TITLE: Navigate to A2A CLI Client Directory (Bash)
+DESCRIPTION: Changes the current directory to the location of the A2A command-line interface client sample code. This is necessary to run the client application.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/crewai/README.md#_snippet_7
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/hosts/cli
+```
+
+----------------------------------------
+
+TITLE: Navigating to Agent Directory
+DESCRIPTION: Command to change directory to the langgraph agent location
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/README.md#2025-04-21_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/agents/langgraph
+```
+
+----------------------------------------
+
+TITLE: Navigate to A2A Client Directory (Bash)
+DESCRIPTION: Changes the current directory to the location of the A2A command-line interface client sample code. This is needed to run the client application.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_7
+
+LANGUAGE: bash
+CODE:
+```
+cd samples/python/hosts/cli
+```
+
+----------------------------------------
+
+TITLE: Unsupported Operation Error - A2A Error
+DESCRIPTION: A2A specific error indicating the requested operation is not supported.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_17
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32004
+Name: UnsupportedOperationError
+Description: The requested operation is not supported.
+```
+
+----------------------------------------
+
+TITLE: JSON Parse Error - Standard RPC Error
+DESCRIPTION: Standard JSON-RPC error indicating an invalid JSON payload.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_9
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32700
+Name: JSONParseError
+Description: Invalid JSON payload.
+```
+
+----------------------------------------
+
+TITLE: Internal Error - Standard RPC Error
+DESCRIPTION: Standard JSON-RPC error indicating an internal server error.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_13
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32603
+Name: InternalError
+Description: Internal server error.
+```
+
+----------------------------------------
+
+TITLE: Serve A2A Documentation Locally (MkDocs)
+DESCRIPTION: Starts a local development server for the A2A documentation using MkDocs. This allows live previewing of changes made to the Markdown files.
+SOURCE: https://github.com/google/a2a/blob/main/docs/README.md#_snippet_1
+
+LANGUAGE: Shell
+CODE:
+```
+mkdocs serve
+```
+
+----------------------------------------
+
+TITLE: Example Agent Card Output
+DESCRIPTION: This snippet shows the expected console output when the Python script is run. It displays the string representation of the created `AgentCard` object, including its name, description, URL, version, capabilities, and the list of skills.
+SOURCE: https://github.com/google/a2a/blob/main/docs/tutorials/python/5-add-agent-card.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+INFO:root:name='Echo Agent' description='This agent echos the input given' url='http://localhost:10002/' provider=None version='0.1.0' documentationUrl=None capabilities=AgentCapabilities(streaming=False, pushNotifications=False, stateTransitionHistory=False) authentication=None defaultInputModes=['text'] defaultOutputModes=['text'] skills=[AgentSkill(id='my-project-echo-skill', name='Echo Tool', description='Echos the input given', tags=['echo', 'repeater'], examples=['I will see this echoed back to me'], inputModes=['text'], outputModes=['text'])]
+```
+
+----------------------------------------
+
+TITLE: Method Not Found Error - Standard RPC Error
+DESCRIPTION: Standard JSON-RPC error indicating the requested method does not exist.
+SOURCE: https://github.com/google/a2a/blob/main/llms.txt#_snippet_11
+
+LANGUAGE: Error Code Definition
+CODE:
+```
+Code: -32601
+Name: MethodNotFoundError
+Description: Method does not exist.
+```
+
+----------------------------------------
+
+TITLE: Deploy A2A Documentation to GitHub Pages (MkDocs)
+DESCRIPTION: Builds the A2A documentation and deploys it to the `gh-pages` branch of the repository, forcing the deployment. This command is typically used in a CI/CD pipeline.
+SOURCE: https://github.com/google/a2a/blob/main/docs/README.md#_snippet_2
+
+LANGUAGE: Shell
+CODE:
+```
+mkdocs gh-deploy --force
+```
+
+----------------------------------------
+
+TITLE: A2A Semantic Kernel Agent Sequence Diagram
+DESCRIPTION: Illustrates the interaction flow between the A2A client, server, Semantic Kernel agents (TravelManager, CurrencyExchange, ActivityPlanner), and the Frankfurter API plugin. Shows how requests are processed, delegated, and results aggregated.
+SOURCE: https://github.com/google/a2a/blob/main/samples/python/agents/semantickernel/README.md#_snippet_0
+
+LANGUAGE: mermaid
+CODE:
+```
+sequenceDiagram
+    participant Client as A2A Client
+    participant Server as A2A Server
+    participant TM as TravelManagerAgent 
+    participant CE as CurrencyExchangeAgent (Plugin)
+    participant AP as ActivityPlannerAgent (Plugin)
+    participant API as Frankfurter API (Plugin)
+
+    Client->>Server: Send task (trip query with budget)
+    Server->>TM: Forward trip planning query
+
+    Note over TM: Analyze and delegate tasks
+    par Currency Exchange Flow
+        TM->>CE: How much is $100 USD in KRW?
+        CE->>API: Call get_exchange_rate tool
+        API->>CE: Return exchange rate
+        CE->>TM: Return currency conversion
+    and Activity Planning Flow
+        TM->>AP: Recommend itinerary for $100 budget
+        AP->>TM: Return itinerary recommendations
+    end
+
+    TM->>Server: Aggregate currency & itinerary
+    Server->>Client: Streaming: "Processing the trip plan (tool calls involved)..."
+    Server->>Client: Streaming: "Building the trip plan..."
+    Server->>Client: Artifact: Final trip plan with budget details
+    Server->>Client: Final status: "Task completed."
+
+```
