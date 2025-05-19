@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from instabids.agents.factory import get_homeowner_agent, get_bidcard_agent
+from instabids.agents.factory import get_homeowner_agent
 from instabids.data import bidcard_repo
 from typing import Dict, Any, List
 

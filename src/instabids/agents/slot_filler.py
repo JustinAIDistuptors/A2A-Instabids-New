@@ -9,26 +9,46 @@ from typing import Dict, List, Any
 
 # Define slots with their questions and any validation/extraction logic
 SLOTS = {
+    "title": {
+        "q": "What would you like to call this project? (e.g., 'Living Room Window Replacement', 'Kitchen Faucet Repair')"
+    },
     "category": {
-        "q": "What category best fits this project (repair, renovation, installation, maintenance, construction, other)?",
+        "q": "What category best fits this project? (e.g., repair, renovation, installation, maintenance, construction)",
         "options": ["repair", "renovation", "installation", "maintenance", "construction", "other"]
     },
-    "job_type": {
-        "q": "Which specific job is it? (e.g. roof repair, lawn mowing)"
+    "description": { 
+        "q": "Could you describe the project and what you need done in a bit more detail?"
+    },
+    "scope_summary": { 
+        "q": "Can you provide some key details about the scope? For example, any specific measurements, materials, or items involved?"
+    },
+    "address": {
+        "q": "What is the street address for the project?"
+    },
+    "city": {
+        "q": "Which city is the project in?"
+    },
+    "state": {
+        "q": "Which state?"
+    },
+    "zip_code": {
+        "q": "And the zip code?"
+    },
+    "urgency": {
+        "q": "How urgent is this project? (e.g., ASAP, within a week, within a month, flexible)",
     },
     "budget_range": {
-        "q": "What budget range do you have in mind (rough estimate is fine)?"
+        "q": "What budget range do you have in mind (e.g., $500-$1000, or even a rough estimate is fine)?"
     },
     "timeline": {
-        "q": "When would you like the work to start and finish?"
+        "q": "When would you ideally like the work to start or be completed?"
     },
-    "location": {
-        "q": "Where is the project located?"
+    "contact_preference": {
+        "q": "How do you prefer to be contacted? (e.g., email, phone)",
     },
-    "group_bidding": {
-        "q": "Are you open to group bidding to lower cost? (yes/no)",
-        "options": ["yes", "no"]
-    },
+    "additional_notes": {
+        "q": "Is there anything else you'd like to add about the project or your requirements?"
+    }
 }
 
 def missing_slots(card: Dict[str, Any]) -> List[str]:
@@ -42,7 +62,12 @@ def missing_slots(card: Dict[str, Any]) -> List[str]:
         List of slot names that are still empty, in priority order
     """
     # Define the order in which slots should be filled
-    order = ["category", "job_type", "budget_range", "timeline", "location", "group_bidding"]
+    order = [
+        "title", "category", "description", "scope_summary",
+        "address", "city", "state", "zip_code",
+        "urgency", "budget_range", "timeline", 
+        "contact_preference", "additional_notes"
+    ]
     
     # Return slots that are empty or None
     return [s for s in order if not card.get(s)]

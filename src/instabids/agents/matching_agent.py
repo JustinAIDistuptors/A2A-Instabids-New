@@ -8,7 +8,7 @@ from google.adk import LLMAgent, enable_tracing
 from google.adk.messages import UserMessage
 from instabids.tools import supabase_tools, vector_search_tool
 from instabids.a2a_comm import send_envelope
-from memory.persistent_memory import PersistentMemory
+from instabids.memory.persistent_memory import PersistentMemory
 from .matching_engine import match_projects_to_contractors
 
 # enable stdout tracing for dev envs

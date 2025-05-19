@@ -13,7 +13,7 @@ class _PushBus:
     def __init__(self):
         self._subs: dict[str, set[asyncio.Queue]] = {}
 
-    def subscribe(self, task_id: str):
+    async def subscribe(self, task_id: str):
         q = asyncio.Queue()
         self._subs.setdefault(task_id, set()).add(q)
         try:
@@ -28,3 +28,7 @@ class _PushBus:
 
 
 push_to_ui = _PushBus()
+
+async def simple_test_dependency() -> str:
+    print("--- simple_test_dependency called ---")
+    return "value_from_simple_dependency"

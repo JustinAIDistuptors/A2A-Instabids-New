@@ -1,1 +1,68 @@
-"""REST API endpoints for message history."""from fastapi import APIRouter, Depends, HTTPException, Queryfrom typing import List, Dict, Any, Optionalfrom instabids.data import message_repofrom datetime import datetimerouter = APIRouter(prefix="/messages")@router.get("/{project_id}")async def get_messages(    project_id: str,    limit: int = Query(50, ge=1, le=200),    before: Optional[datetime] = None) -> List[Dict[str, Any]]:    """    Get message history for a project.    Args:        project_id: Project ID        limit: Maximum number of messages to return        before: Return messages before this timestamp        Returns:        List of messages    """    try:        messages = await message_repo.get_messages(            project_id=project_id,            limit=limit,            before=before        )        return messages    except Exception as e:        raise HTTPException(status_code=500, detail=f"Failed to retrieve messages: {str(e)}")@router.post("/{project_id}")async def add_message(    project_id: str,    message: Dict[str, Any]) -> Dict[str, Any]:    """    Add a new message to the project history.    Args:        project_id: Project ID        message: Message content        Returns:        Saved message with ID    """    try:        if "sender_id" not in message:            raise HTTPException(status_code=400, detail="Missing required field: sender_id")                    if "content" not in message:            raise HTTPException(status_code=400, detail="Missing required field: content")                    message["project_id"] = project_id        message_id = await message_repo.save_message(message)                return {            "id": message_id,            **message        }    except HTTPException:        raise    except Exception as e:        raise HTTPException(status_code=500, detail=f"Failed to save message: {str(e)}")
+"""REST API endpoints for message history."""
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Dict, Any, Optional
+from instabids.data import message_repo
+from datetime import datetime
+
+router = APIRouter(prefix="/messages")
+
+@router.get("/{project_id}")
+async def get_messages(
+    project_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    before: Optional[datetime] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get message history for a project.
+
+    Args:
+        project_id: Project ID
+        limit: Maximum number of messages to return
+        before: Return messages before this timestamp
+
+    Returns:
+        List of messages
+    """
+    try:
+        messages = await message_repo.get_messages(
+            project_id=project_id,
+            limit=limit,
+            before=before
+        )
+        return messages
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve messages: {str(e)}")
+
+@router.post("/{project_id}")
+async def add_message(
+    project_id: str,
+    message: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Add a new message to the project history.
+
+    Args:
+        project_id: Project ID
+        message: Message content
+
+    Returns:
+        Saved message with ID
+    """
+    try:
+        if "sender_id" not in message:
+            raise HTTPException(status_code=400, detail="Missing required field: sender_id")
+        
+        if "content" not in message:
+            raise HTTPException(status_code=400, detail="Missing required field: content")
+        
+        message["project_id"] = project_id
+        message_id = await message_repo.save_message(message)
+        
+        return {
+            "id": message_id,
+            **message
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save message: {str(e)}")

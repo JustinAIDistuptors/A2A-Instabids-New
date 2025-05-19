@@ -8,7 +8,7 @@ from google.adk import LLMAgent, enable_tracing
 from google.adk.messages import UserMessage
 from instabids.tools import supabase_tools, bid_visualization_tool
 from instabids.a2a_comm import send_envelope
-from memory.persistent_memory import PersistentMemory
+from instabids.memory.persistent_memory import PersistentMemory
 from .bid_scoring import score_bid
 
 # enable stdout tracing for dev envs

@@ -1,1 +1,62 @@
-"""Repository for handling chat message storage."""from typing import Dict, Any, List, Optionalfrom datetime import datetimeimport uuidimport loggingfrom instabids.data.supabase_client import get_supabase_clientlogger = logging.getLogger(__name__)async def get_messages(    project_id: str,    limit: int = 50,    before: Optional[datetime] = None) -> List[Dict[str, Any]]:    """    Get messages for a project.    Args:        project_id: Project ID        limit: Maximum number of messages to return        before: Return messages before this timestamp        Returns:        List of messages    """    supabase = get_supabase_client()    query = supabase.table("messages").select("*").eq("project_id", project_id)        if before:        query = query.lt("created_at", before.isoformat())            messages = query.order("created_at", desc=True).limit(limit).execute()        # Return messages in chronological order    return sorted(messages.data, key=lambda m: m["created_at"])async def save_message(message: Dict[str, Any]) -> str:    """    Save a message to the database.    Args:        message: Message data        Returns:        Message ID    """    supabase = get_supabase_client()        # Add metadata    if "id" not in message:        message["id"] = str(uuid.uuid4())            if "created_at" not in message:        message["created_at"] = datetime.now().isoformat()            # Save to database    result = supabase.table("messages").insert(message).execute()        if not result.data or not result.data[0]:        raise Exception("Failed to save message")            return result.data[0]["id"]
+"""Repository for handling chat message storage."""
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+import uuid
+import logging
+from instabids.data.supabase_client import get_supabase_client
+
+logger = logging.getLogger(__name__)
+
+async def get_messages(
+    project_id: str,
+    limit: int = 50,
+    before: Optional[datetime] = None
+) -> List[Dict[str, Any]]:
+    """
+    Get messages for a project.
+
+    Args:
+        project_id: Project ID
+        limit: Maximum number of messages to return
+        before: Return messages before this timestamp
+
+    Returns:
+        List of messages
+    """
+    supabase = get_supabase_client()
+    query = supabase.table("messages").select("*").eq("project_id", project_id)
+    
+    if before:
+        query = query.lt("created_at", before.isoformat())
+        
+    messages = query.order("created_at", desc=True).limit(limit).execute()
+    
+    # Return messages in chronological order
+    return sorted(messages.data, key=lambda m: m["created_at"])
+
+async def save_message(message: Dict[str, Any]) -> str:
+    """
+    Save a message to the database.
+
+    Args:
+        message: Message data
+
+    Returns:
+        Message ID
+    """
+    supabase = get_supabase_client()
+    
+    # Add metadata
+    if "id" not in message:
+        message["id"] = str(uuid.uuid4())
+        
+    if "created_at" not in message:
+        message["created_at"] = datetime.now().isoformat()
+        
+    # Save to database
+    result = supabase.table("messages").insert(message).execute()
+    
+    if not result.data or not result.data[0]:
+        raise Exception("Failed to save message")
+        
+    return result.data[0]["id"]

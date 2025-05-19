@@ -1,0 +1,16 @@
+2025-05-18 09:02:27,329 - INFO - root - setup_logging - Logging configured for console (INFO) and file (DEBUG at tools/agent_run.log)
+2025-05-18 09:02:27,329 - INFO - __main__ - <module> - Initial key checks passed in __main__. Running asyncio.run(main()).
+2025-05-18 09:02:27,330 - DEBUG - asyncio - __init__ - Using selector: EpollSelector
+2025-05-18 09:02:27,330 - WARNING - __main__ - main - SUPABASE_SERVICE_ROLE not found in .env, using hardcoded value for main().
+2025-05-18 09:02:27,331 - INFO - __main__ - main - Attempting to initialize HomeownerAgent within main()...
+2025-05-18 09:02:27,331 - DEBUG - src.instabids.agents.homeowner_agent - create - HomeownerAgent.create called. Calling super().create() for HomeownerAgent
+2025-05-18 09:02:27,331 - ERROR - __main__ - main - Exception during HomeownerAgent.create() in main(): 'super' object has no attribute 'create'
+Traceback (most recent call last):
+  File "/app/tools/run_homeowner_agent.py", line 139, in main
+    agent = await HomeownerAgent.create(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/src/instabids/agents/homeowner_agent.py", line 200, in create
+    instance = await super().create(
+                     ^^^^^^^^^^^^^^
+AttributeError: 'super' object has no attribute 'create'
+2025-05-18 09:02:27,338 - ERROR - __main__ - main - HomeownerAgent initialization failed within main() or agent is None. Skipping further execution in main().

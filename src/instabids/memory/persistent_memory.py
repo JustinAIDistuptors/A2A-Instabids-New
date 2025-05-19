@@ -3,17 +3,17 @@ PersistentMemory implementation that provides user-specific memory persistence.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable, Coroutine, Tuple
 import json
 import datetime
 
-from google.adk.memory import Memory
+# from google.adk.memory import BaseMemoryService
 from supabase import Client
 
 logger = logging.getLogger(__name__)
 
 
-class PersistentMemory(Memory):
+class PersistentMemory:
     """
     User-specific persistent memory implementation compatible with ADK.
     Stores and retrieves memory from Supabase database.
@@ -21,12 +21,137 @@ class PersistentMemory(Memory):
 
     def __init__(self, db: Client, user_id: str):
         """Initialize with database client and user ID."""
-        super().__init__()  # Initialize base Memory class
+        # super().__init__()  # Initialize base Memory class
         self.db = db
         self.user_id = user_id
         self._memory_cache: Dict[str, Any] = {}  # In-memory cache
         self._is_loaded = False
         self._is_dirty = False  # Track if memory needs to be saved
+
+    async def add_entry_to_session(
+        self,
+        session_id: str,
+        user_query: Optional[str] = None,
+        llm_response: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None, # metadata is not used for now, but kept for signature
+    ):
+        """Add a user query and/or an LLM response to a specific session in memory."""
+        if not self._is_loaded:
+            await self.load()
+
+        if "interactions" not in self._memory_cache or not isinstance(self._memory_cache.get("interactions"), list):
+            self._memory_cache["interactions"] = []
+
+        timestamp = datetime.datetime.utcnow().isoformat()
+
+        if user_query is not None:
+            self._memory_cache["interactions"].append({
+                "session_id": session_id,
+                "speaker": "user",
+                "text": user_query,
+                "timestamp": timestamp,
+            })
+            self._is_dirty = True
+            logger.debug(f"Added user query to session {session_id} in memory.")
+
+        if llm_response is not None:
+            # Add a slight delay to ensure LLM response timestamp is after user query if both are added together
+            # Though in practice, they are added in separate calls to add_to_memory by HomeownerAgent
+            llm_timestamp = datetime.datetime.utcnow().isoformat()
+            self._memory_cache["interactions"].append({
+                "session_id": session_id,
+                "speaker": "model", # Or "assistant", "ai" - standardize with what HomeownerAgent expects
+                "text": llm_response,
+                "timestamp": llm_timestamp,
+            })
+            self._is_dirty = True
+            logger.debug(f"Added LLM response to session {session_id} in memory.")
+        
+        # Potentially save immediately or rely on a periodic save / save on exit
+        # For now, let's assume save is called elsewhere when appropriate or at end of agent run.
+
+    async def get_history(self, session_id: str) -> List[Tuple[str, str]]:
+        """Retrieve conversation history for a specific session, ordered by timestamp."""
+        if not self._is_loaded:
+            await self.load()
+        
+        history_tuples: List[Tuple[str, str]] = []
+        interactions = self._memory_cache.get("interactions", [])
+        
+        session_interactions = [
+            interaction for interaction in interactions 
+            if isinstance(interaction, dict) and interaction.get("session_id") == session_id
+        ]
+        
+        # Sort by timestamp to ensure correct order
+        try:
+            session_interactions.sort(key=lambda x: datetime.datetime.fromisoformat(x.get("timestamp", "")))
+        except Exception as e:
+            logger.error(f"Error sorting interactions by timestamp for session {session_id}: {e}. Interactions: {session_interactions}")
+            # Proceed with unsorted or partially sorted if error occurs
+
+        for interaction in session_interactions:
+            speaker = interaction.get("speaker")
+            text = interaction.get("text")
+            if speaker and text is not None:
+                history_tuples.append((speaker, text))
+            else:
+                logger.warning(f"Skipping interaction with missing speaker or text: {interaction}")
+                
+        logger.debug(f"Retrieved {len(history_tuples)} history entries for session {session_id}.")
+        return history_tuples
+
+    async def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a specific document by its ID. (Placeholder)"""
+        logger.warning(f"'get_document' not fully implemented in PersistentMemory. Document ID: {document_id}")
+        return self._memory_cache.get("documents", {}).get(document_id)
+
+    async def get_documents(self, document_ids: List[str]) -> List[Dict[str, Any]]:
+        """Retrieve multiple documents by their IDs. (Placeholder)"""
+        logger.warning(f"'get_documents' not fully implemented in PersistentMemory. Document IDs: {document_ids}")
+        docs = []
+        for doc_id in document_ids:
+            doc = await self.get_document(doc_id)
+            if doc:
+                docs.append(doc)
+        return docs
+
+    async def search_memory(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Search the memory for a given query. (Placeholder)
+        
+        This is distinct from mem0ai's search. This would search PersistentMemory's own data.
+        """
+        logger.warning(f"'search_memory' not fully implemented in PersistentMemory. Query: {query}, Limit: {limit}")
+        results = []
+        if "interactions" in self._memory_cache:
+            for interaction in self._memory_cache["interactions"]:
+                interaction_text = json.dumps(interaction.get("data", ""))
+                if query.lower() in interaction_text.lower():
+                    results.append(interaction) 
+                    if len(results) >= limit:
+                        break
+        return results
+
+    async def add_session_to_memory(self, session_data: List[Dict[str, Any]]) -> bool:
+        """Process and store a session of interactions. (Placeholder)
+
+        Args:
+            session_data: A list of interaction dictionaries for the session.
+        """
+        logger.warning(f"'add_session_to_memory' not fully implemented in PersistentMemory. Session data items: {len(session_data) if session_data else 0}")
+        if session_data:
+            if "sessions" not in self._memory_cache:
+                self._memory_cache["sessions"] = []
+            self._memory_cache["sessions"].append(
+                {
+                    "session_id": f"session_{datetime.datetime.utcnow().timestamp()}",
+                    "interactions": session_data,
+                    "timestamp": datetime.datetime.utcnow().isoformat()
+                }
+            )
+            self._is_dirty = True
+            return True
+        return False
 
     async def load(self) -> bool:
         """Load user's memory from database."""
@@ -35,21 +160,22 @@ class PersistentMemory(Memory):
 
         try:
             logger.info(f"Loading memory for user {self.user_id}")
-            result = (
-                await self.db.table("user_memories")
+            response = await (
+                self.db.table("user_memories")
                 .select("memory_data")
                 .eq("user_id", self.user_id)
-                .maybe_single()
                 .execute()
             )
 
-            if result.data:
-                self._memory_cache = result.data.get("memory_data", {})
+            # response.data should be a list of dictionaries
+            if response.data and len(response.data) > 0:
+                # Assuming user_id constraint means at most one record, or we take the first.
+                self._memory_cache = response.data[0].get("memory_data", {})
                 self._is_loaded = True
                 logger.info(f"Successfully loaded memory for user {self.user_id}")
                 return True
-            else:
-                # Initialize new memory
+            elif response.data is not None: # Indicates an empty list [] was returned by execute()
+                # Initialize new memory as no record was found
                 logger.info(
                     f"No existing memory found for user {self.user_id}. Initializing."
                 )
@@ -60,9 +186,12 @@ class PersistentMemory(Memory):
                     "creation_date": datetime.datetime.utcnow().isoformat(),
                 }
                 self._is_loaded = True
-                self._is_dirty = True
+                self._is_dirty = True  # Mark as dirty to trigger save for new record
                 await self.save()  # Create initial memory record
                 return True
+            else: # response.data is None, which is unexpected after .execute() if no HTTP error
+                logger.error(f"Failed to load memory for user {self.user_id}: Response data was None. Full response: {response}")
+                return False
 
         except Exception as e:
             logger.error(
@@ -286,3 +415,6 @@ class PersistentMemory(Memory):
 
         prefs = self._memory_cache.get("learned_preferences", {})
         return {k: v["value"] for k, v in prefs.items()}
+
+# Example Usage (for direct testing if needed)
+# async def main():

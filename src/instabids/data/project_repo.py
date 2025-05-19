@@ -2,12 +2,11 @@
 from __future__ import annotations
 from typing import List, Dict, Any
 import os, time
-from supabase import create_client  # type: ignore
-from supabase.lib.client import Client  # type: ignore
+from supabase import Client  # type: ignore
 
 URL  = os.environ["SUPABASE_URL"]
 KEY  = os.environ["SUPABASE_ANON_KEY"]
-_sb: Client = create_client(URL, KEY)
+_sb: Client = Client(URL, KEY)
 _MAX_RETRY = 3
 
 class _Tx:

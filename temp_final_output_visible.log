@@ -1,0 +1,60 @@
+2025-05-16 22:53:02,474 - INFO - root - Logging configured. Log file: C:\Users\Not John Or Justin\Documents\GitHub\A2A-Instabids-New\agent_run.log
+2025-05-16 22:53:02,475 - INFO - __main__ - Temporarily hardcoded SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, and MEM0_API_KEY.
+2025-05-16 22:53:02,475 - INFO - __main__ - Using SUPABASE_SERVICE_ROLE_KEY for Supabase client.
+2025-05-16 22:53:02,655 - INFO - __main__ - Async Supabase client (via create_async_client) initialized.
+2025-05-16 22:53:02,655 - INFO - __main__ - Using test_user_id: b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:02,655 - INFO - __main__ - Ensuring test user b6737eaf-abfa-4326-aff2-ef9beca73d9b exists in 'users' table.
+2025-05-16 22:53:03,162 - INFO - httpx - HTTP Request: POST https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/users "HTTP/2 201 Created"
+2025-05-16 22:53:03,165 - INFO - __main__ - Successfully inserted user b6737eaf-abfa-4326-aff2-ef9beca73d9b into 'users' table.
+2025-05-16 22:53:03,165 - INFO - instabids.memory.persistent_memory - Loading memory for user b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:03,322 - INFO - httpx - HTTP Request: GET https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/user_memories?select=memory_data&user_id=eq.b6737eaf-abfa-4326-aff2-ef9beca73d9b "HTTP/2 200 OK"
+2025-05-16 22:53:03,323 - INFO - instabids.memory.persistent_memory - No existing memory found for user b6737eaf-abfa-4326-aff2-ef9beca73d9b. Initializing.
+2025-05-16 22:53:03,324 - INFO - instabids.memory.persistent_memory - Saving memory for user b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:03,411 - INFO - httpx - HTTP Request: POST https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/user_memories "HTTP/2 201 Created"
+2025-05-16 22:53:03,412 - INFO - instabids.memory.persistent_memory - Successfully saved memory for user b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:03,412 - INFO - __main__ - PersistentMemory initialized for user b6737eaf-abfa-4326-aff2-ef9beca73d9b.
+2025-05-16 22:53:03,413 - WARNING - google.adk.agents.llm_agent - Invalid config for agent HomeownerAgent: output_schema cannot co-exist with agent transfer configurations. Setting disallow_transfer_to_parent=True, disallow_transfer_to_peers=True
+2025-05-16 22:53:04,019 - INFO - httpx - HTTP Request: GET https://api.mem0.ai/v1/ping/ "HTTP/1.1 200 OK"
+2025-05-16 22:53:04,067 - INFO - instabids.agents.homeowner_agent - Mem0ai client initialized successfully.
+2025-05-16 22:53:04,067 - INFO - __main__ - HomeownerAgent initialized.
+2025-05-16 22:53:04,067 - INFO - __main__ - 
+--- Interaction 1: Initial Project Description ---
+2025-05-16 22:53:09,897 - INFO - httpx - HTTP Request: POST https://api.mem0.ai/v1/memories/ "HTTP/1.1 200 OK"
+2025-05-16 22:53:09,938 - INFO - instabids.agents.homeowner_agent - Added text description to mem0ai for user b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:09,938 - INFO - instabids.agents.homeowner_agent - Recalling past context from mem0ai for user b6737eaf-abfa-4326-aff2-ef9beca73d9b with query: 'I need help replacing a broken window pane in my living room. It's a double-glazed unit, roughly 24 ...'
+2025-05-16 22:53:10,073 - INFO - httpx - HTTP Request: POST https://api.mem0.ai/v1/memories/search/ "HTTP/1.1 200 OK"
+2025-05-16 22:53:10,093 - INFO - instabids.agents.homeowner_agent - Mem0ai recalled 2 memories.
+2025-05-16 22:53:10,093 - INFO - instabids.agents.homeowner_agent - Augmenting input with recalled context for user b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:10,093 - INFO - instabids.agents.homeowner_agent - Invoking LLM for slot filling. User input: '
+--- Relevant Past Context ---
+Memory 1 (Score: 0.6429101420316146): Memory content not available
+Me...', Current card state: []
+2025-05-16 22:53:10,093 - ERROR - instabids.agents.homeowner_agent - Error during LLM predict call: 'HomeownerAgent' object has no attribute 'predict'
+Traceback (most recent call last):
+  File "C:\Users\Not John Or Justin\Documents\GitHub\A2A-Instabids-New\src\instabids\agents\homeowner_agent.py", line 309, in process_input
+    llm_response = await self.predict(
+                         ^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\pydantic\main.py", line 989, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'HomeownerAgent' object has no attribute 'predict'
+2025-05-16 22:53:10,096 - INFO - instabids.agents.homeowner_agent - Saved updated_bid_card to PersistentMemory for user b6737eaf-abfa-4326-aff2-ef9beca73d9b. Keys: ['user_id', 'description']
+2025-05-16 22:53:10,096 - INFO - instabids.agents.homeowner_agent - Slots still missing for user b6737eaf-abfa-4326-aff2-ef9beca73d9b: ['title', 'category', 'scope_summary', 'address', 'city', 'state', 'zip_code', 'urgency', 'budget_range', 'timeline', 'contact_preference', 'additional_notes']. Determining next question.
+2025-05-16 22:53:10,096 - INFO - instabids.agents.homeowner_agent - Using slot_filler's next question: 'What would you like to call this project? (e.g., 'Living Room Window Replacement', 'Kitchen Faucet R...'
+2025-05-16 22:53:11,615 - INFO - httpx - HTTP Request: POST https://api.mem0.ai/v1/memories/ "HTTP/1.1 200 OK"
+2025-05-16 22:53:11,646 - INFO - instabids.agents.homeowner_agent - Added agent follow-up to mem0ai for user b6737eaf-abfa-4326-aff2-ef9beca73d9b
+2025-05-16 22:53:11,647 - INFO - __main__ - Agent Response 1: {'need_more': True, 'follow_up': "What would you like to call this project? (e.g., 'Living Room Window Replacement', 'Kitchen Faucet Repair')", 'collected': {'description': "I need help replacing a broken window pane in my living room. It's a double-glazed unit, roughly 24 inches by 36 inches."}}
+2025-05-16 22:53:11,647 - INFO - __main__ - Interaction 1 seems to have provided a conclusive response or did not ask a follow-up question in the expected format.
+2025-05-16 22:53:11,647 - INFO - __main__ - 
+--- Testing Mem0ai Recall ---
+2025-05-16 22:53:11,647 - INFO - instabids.agents.homeowner_agent - Recalling past context from mem0ai for user b6737eaf-abfa-4326-aff2-ef9beca73d9b with query: 'What was the problem with my window?...'
+2025-05-16 22:53:11,776 - INFO - httpx - HTTP Request: POST https://api.mem0.ai/v1/memories/search/ "HTTP/1.1 200 OK"
+2025-05-16 22:53:11,799 - INFO - instabids.agents.homeowner_agent - Mem0ai recalled 2 memories.
+2025-05-16 22:53:11,799 - INFO - __main__ - Mem0ai recalled for query 'What was the problem with my window?':
+2025-05-16 22:53:11,799 - INFO - __main__ -   Memory 1: Score: 0.46866828203201294, Content: N/A
+2025-05-16 22:53:11,799 - INFO - __main__ -   Memory 2: Score: 0.44985753297805786, Content: N/A
+2025-05-16 22:53:11,799 - INFO - instabids.agents.homeowner_agent - Recalling past context from mem0ai for user b6737eaf-abfa-4326-aff2-ef9beca73d9b with query: 'What are the window dimensions?...'
+2025-05-16 22:53:11,937 - INFO - httpx - HTTP Request: POST https://api.mem0.ai/v1/memories/search/ "HTTP/1.1 200 OK"
+2025-05-16 22:53:11,963 - INFO - instabids.agents.homeowner_agent - Mem0ai recalled 2 memories.
+2025-05-16 22:53:11,963 - INFO - __main__ - Mem0ai recalled for query 'What are the window dimensions?':
+2025-05-16 22:53:11,963 - INFO - __main__ -   Memory 1: Score: 0.7027785181999207, Content: N/A
+2025-05-16 22:53:11,963 - INFO - __main__ -   Memory 2: Score: 0.4878076910972595, Content: N/A

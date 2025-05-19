@@ -1,0 +1,109 @@
+2025-05-18 21:20:09,668 - INFO - root - Logging configured. Log file: C:\Users\Not John Or Justin\Documents\GitHub\A2A-Instabids-New\agent_run.log
+2025-05-18 21:20:09,671 - INFO - __main__ - Supabase URL: https://mkfbxvwmuxebggfbljgn.supabase.co
+2025-05-18 21:20:09,671 - INFO - __main__ - Supabase Anon Key: Set
+2025-05-18 21:20:09,671 - INFO - __main__ - Supabase Service Key: Set
+2025-05-18 21:20:09,671 - INFO - __main__ - Mem0 API Key: Set
+2025-05-18 21:20:09,671 - INFO - __main__ - OpenAI API Key: Set (but may be empty)
+2025-05-18 21:20:09,980 - INFO - __main__ - Using test_user_id: 11d95810-0b51-4b64-a713-a7a02087a660 and session_id: 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:09,981 - INFO - __main__ - Ensuring test user 11d95810-0b51-4b64-a713-a7a02087a660 exists in 'users' table.
+2025-05-18 21:20:10,465 - INFO - httpx - HTTP Request: POST https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/users "HTTP/2 201 Created"
+2025-05-18 21:20:10,467 - INFO - __main__ - Successfully inserted user 11d95810-0b51-4b64-a713-a7a02087a660 into 'users' table.
+2025-05-18 21:20:10,467 - INFO - src.instabids.memory.persistent_memory - Loading memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:10,631 - INFO - httpx - HTTP Request: GET https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/user_memories?select=memory_data&user_id=eq.11d95810-0b51-4b64-a713-a7a02087a660 "HTTP/2 200 OK"
+2025-05-18 21:20:10,632 - INFO - src.instabids.memory.persistent_memory - No existing memory found for user 11d95810-0b51-4b64-a713-a7a02087a660. Initializing.
+2025-05-18 21:20:10,633 - INFO - src.instabids.memory.persistent_memory - Saving memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:10,810 - INFO - httpx - HTTP Request: POST https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/user_memories "HTTP/2 201 Created"
+2025-05-18 21:20:10,811 - INFO - src.instabids.memory.persistent_memory - Successfully saved memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:10,811 - INFO - __main__ - PersistentMemory initialized and loaded for user_id: 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:10,811 - ERROR - src.instabids.tools.openai_vision_tool - CRITICAL: 'openai_vision_tool' was called, but its implementation is missing! This tool needs to be created/restored in 'src/instabids/tools/openai_vision_tool.py'.
+2025-05-18 21:20:10,811 - WARNING - src.instabids.agents.homeowner_agent - OpenAI Vision Tool could not be initialized (NotImplemented or placeholder): OpenAI Vision Tool is not implemented yet. The file 'openai_vision_tool.py' is a placeholder.
+2025-05-18 21:20:10,811 - INFO - HomeownerAgent - HomeownerAgent logger initialized for 'HomeownerAgent'.
+2025-05-18 21:20:10,812 - ERROR - HomeownerAgent - Failed to initialize GenerativeModel 'gemini-1.5-flash-latest' for HomeownerAgent: Invalid input type. Expected an instance of `genai.ToolType`.
+However, received an object of type: <class 'google.adk.tools.openapi_tool.openapi_spec_parser.rest_api_tool.RestApiTool'>.
+Object Value: RestApiTool(name="create_bid", description="Insert a contractor bid", endpoint="base_url='' path='/rest/v1/rpc/create_bid' method='post'")
+Traceback (most recent call last):
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 828, in _make_tool
+    return Tool(function_declarations=[tool])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 717, in __init__
+    _make_function_declaration(f) for f in function_declarations
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 654, in _make_function_declaration
+    raise TypeError(
+TypeError: Invalid input type. Expected an instance of `genai.FunctionDeclarationType`.
+However, received an object of type: <class 'google.adk.tools.openapi_tool.openapi_spec_parser.rest_api_tool.RestApiTool'>.
+Object Value: RestApiTool(name="create_bid", description="Insert a contractor bid", endpoint="base_url='' path='/rest/v1/rpc/create_bid' method='post'")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Not John Or Justin\Documents\GitHub\A2A-Instabids-New\src\instabids\agents\homeowner_agent.py", line 271, in __init__
+    self.genai_model_instance = GenerativeModel(
+                                ^^^^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\generative_models.py", line 87, in __init__
+    self._tools = content_types.to_function_library(tools)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 903, in to_function_library
+    return FunctionLibrary(tools=lib)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 841, in __init__
+    tools = _make_tools(tools)
+            ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 884, in _make_tools
+    tools = [_make_tool(t) for t in tools]
+             ^^^^^^^^^^^^^
+  File "C:\Users\Not John Or Justin\AppData\Local\Programs\Python\Python312\Lib\site-packages\google\generativeai\types\content_types.py", line 830, in _make_tool
+    raise TypeError(
+TypeError: Invalid input type. Expected an instance of `genai.ToolType`.
+However, received an object of type: <class 'google.adk.tools.openapi_tool.openapi_spec_parser.rest_api_tool.RestApiTool'>.
+Object Value: RestApiTool(name="create_bid", description="Insert a contractor bid", endpoint="base_url='' path='/rest/v1/rpc/create_bid' method='post'")
+2025-05-18 21:20:11,460 - INFO - httpx - HTTP Request: GET https://api.mem0.ai/v1/ping/ "HTTP/1.1 401 Unauthorized"
+2025-05-18 21:20:11,460 - ERROR - HomeownerAgent - Failed to initialize Mem0ai client: Error: Invalid API key. You can find your API key on https://app.mem0.ai/dashboard/api-keys.
+2025-05-18 21:20:11,461 - INFO - HomeownerAgent - HomeownerAgent fully initialized. GenAI Model: gemini-1.5-flash-latest. GenAI Tools: 2
+2025-05-18 21:20:11,461 - INFO - __main__ - HomeownerAgent initialized.
+2025-05-18 21:20:11,461 - INFO - __main__ - --- Starting Interactive Agent Test Session ---
+2025-05-18 21:20:11,461 - INFO - __main__ - Type 'quit' or 'exit' to end.
+2025-05-18 21:20:11,461 - INFO - __main__ - Type 'show history' to view conversation turns from PersistentMemory.
+2025-05-18 21:20:11,461 - INFO - __main__ - Type 'show memory' to view raw memory dump for the user.
+2025-05-18 21:20:11,461 - INFO - __main__ - 
+Using initial message from command line: Hello, I need help with replacing a window.
+2025-05-18 21:20:11,461 - INFO - __main__ - Processing input: Hello, I need help with replacing a window.
+2025-05-18 21:20:11,461 - INFO - HomeownerAgent - Processing input for user_id: 11d95810-0b51-4b64-a713-a7a02087a660, session_id: 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:11,461 - INFO - HomeownerAgent - Loading conversation history for session_id: 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:11,461 - INFO - HomeownerAgent - Calling LLM with tools and history...
+2025-05-18 21:20:11,461 - INFO - HomeownerAgent - Calling LLM with tools and history. Messages: 1
+2025-05-18 21:20:11,462 - ERROR - HomeownerAgent - GenerativeModel (self.genai_model_instance) is not initialized.
+2025-05-18 21:20:11,462 - INFO - HomeownerAgent - LLM call successful.
+2025-05-18 21:20:11,462 - INFO - HomeownerAgent - Saving user query and LLM response to session: 11d95810-0b51-4b64-a713-a7a02087a660 in PersistentMemory.
+2025-05-18 21:20:11,462 - INFO - src.instabids.memory.persistent_memory - Saving memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:11,640 - INFO - httpx - HTTP Request: POST https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/user_memories "HTTP/2 200 OK"
+2025-05-18 21:20:11,641 - INFO - src.instabids.memory.persistent_memory - Successfully saved memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:11,641 - INFO - HomeownerAgent - Persistent memory saved for user 11d95810-0b51-4b64-a713-a7a02087a660, session 11d95810-0b51-4b64-a713-a7a02087a660.
+2025-05-18 21:20:11,641 - INFO - __main__ - 
+Agent thought: Error: Model not initialized.
+2025-05-18 21:20:11,641 - INFO - __main__ - Agent to you: Sorry, I'm having trouble connecting to my core functions. Please try again later.
+2025-05-18 21:20:11,641 - INFO - __main__ - 
+--- Current Bid Card State ---
+2025-05-18 21:20:11,641 - INFO - __main__ - {}
+2025-05-18 21:20:11,641 - INFO - __main__ - --- End Bid Card State ---
+2025-05-18 21:20:30,613 - INFO - __main__ - Processing input: need a new pool guy for my window
+2025-05-18 21:20:30,613 - INFO - HomeownerAgent - Processing input for user_id: 11d95810-0b51-4b64-a713-a7a02087a660, session_id: 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:30,613 - INFO - HomeownerAgent - Loading conversation history for session_id: 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:30,613 - INFO - HomeownerAgent - Calling LLM with tools and history...
+2025-05-18 21:20:30,613 - INFO - HomeownerAgent - Calling LLM with tools and history. Messages: 3
+2025-05-18 21:20:30,613 - ERROR - HomeownerAgent - GenerativeModel (self.genai_model_instance) is not initialized.
+2025-05-18 21:20:30,613 - INFO - HomeownerAgent - LLM call successful.
+2025-05-18 21:20:30,613 - INFO - HomeownerAgent - Saving user query and LLM response to session: 11d95810-0b51-4b64-a713-a7a02087a660 in PersistentMemory.
+2025-05-18 21:20:30,614 - INFO - src.instabids.memory.persistent_memory - Saving memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:30,830 - INFO - httpx - HTTP Request: POST https://mkfbxvwmuxebggfbljgn.supabase.co/rest/v1/user_memories "HTTP/2 200 OK"
+2025-05-18 21:20:30,832 - INFO - src.instabids.memory.persistent_memory - Successfully saved memory for user 11d95810-0b51-4b64-a713-a7a02087a660
+2025-05-18 21:20:30,832 - INFO - HomeownerAgent - Persistent memory saved for user 11d95810-0b51-4b64-a713-a7a02087a660, session 11d95810-0b51-4b64-a713-a7a02087a660.
+2025-05-18 21:20:30,832 - INFO - __main__ - 
+Agent thought: Error: Model not initialized.
+2025-05-18 21:20:30,832 - INFO - __main__ - Agent to you: Sorry, I'm having trouble connecting to my core functions. Please try again later.
+2025-05-18 21:20:30,832 - INFO - __main__ - 
+--- Current Bid Card State ---
+2025-05-18 21:20:30,832 - INFO - __main__ - {}
+2025-05-18 21:20:30,832 - INFO - __main__ - --- End Bid Card State ---
+2025-05-18 21:21:09,832 - INFO - __main__ - --- Agent run script finished ---
+2025-05-18 21:21:09,833 - INFO - __main__ - Script interrupted by user (KeyboardInterrupt).

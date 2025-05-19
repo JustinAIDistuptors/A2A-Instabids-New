@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 import { cn } from "@/lib/utils"; 
 import { AgentStatusBadge } from "@/components/agent-status-badge"; 
+import { Toaster } from 'sonner'; // Import Toaster from 'sonner'
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -32,12 +34,20 @@ export default function RootLayout({
               <a href="/" className="font-bold text-xl">InstaBids</a>
             </div>
 
-            {/* Navigation Links Placeholder */}
+            {/* Navigation Links */}
             <nav className="hidden md:flex flex-grow items-center space-x-6 text-sm font-medium">
-              {/* <a href="/dashboard" className="text-foreground/60 hover:text-foreground/80">Dashboard</a> */}
-              {/* <a href="/bids" className="text-foreground/60 hover:text-foreground/80">My Bids</a> */}
-              {/* <a href="/settings" className="text-foreground/60 hover:text-foreground/80">Settings</a> */}
-              <p className="text-foreground/60">Nav Links Placeholder</p>
+              <Link href="/" className="text-foreground/80 hover:text-foreground transition-colors">
+                Chat
+              </Link>
+              <Link href="/bids/new" className="text-foreground/80 hover:text-foreground transition-colors">
+                Create Bid
+              </Link>
+              <Link href="/bids" className="text-foreground/80 hover:text-foreground transition-colors">
+                My Bids
+              </Link>
+              <Link href="/settings" className="text-foreground/80 hover:text-foreground transition-colors">
+                Settings
+              </Link>
             </nav>
 
             {/* Right side: User Profile/Settings Placeholder & Agent Status */}
@@ -49,18 +59,19 @@ export default function RootLayout({
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-grow">
+        <main className="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </main>
 
         {/* Footer Placeholder (Optional) */}
-        {/* <footer className="py-6 md:px-8 md:py-0 border-t">
-          <div className="container flex flex-col items-center justify-between gap-4 md:h-24 md:flex-row">
-            <p className="text-balance text-center text-sm leading-loose text-muted-foreground md:text-left">
+        <footer className="border-t py-6 md:py-0">
+          <div className="container mx-auto flex flex-col items-center justify-center gap-4 md:h-24 md:flex-row">
+            <p className="text-center text-sm leading-loose text-muted-foreground md:text-left">
               &copy; {new Date().getFullYear()} InstaBids. All rights reserved.
             </p>
           </div>
-        </footer> */}
+        </footer>
+        <Toaster /> {/* Add Toaster here for global notifications */}
       </body>
     </html>
   );
